@@ -47,4 +47,4 @@ cd src
 make check-xdf
 ```
 
-The technical implementation report is available in [`docs/pong.pptx`](docs/pong.pptx).
+The technical implementation report is available in [`docs/pong-en.pdf`](docs/pong-en.pdf).

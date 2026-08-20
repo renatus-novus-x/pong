@@ -47,4 +47,4 @@ cd src
 make check-xdf
 ```
 
-技術的な実装内容は[`docs/pong.pptx`](docs/pong.pptx)にまとめています。
+技術的な実装内容は[`docs/pong-ja.pdf`](docs/pong-ja.pdf)にまとめています。
