@@ -1,0 +1,10 @@
+# Local build products
+src/build/
+src/*.o
+src/*.sys
+src/*.elf*
+
+# Recording output and temporary report files
+artifacts/
+*.inspect.ndjson
+.tmp_pptx/
