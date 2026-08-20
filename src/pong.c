@@ -12,6 +12,8 @@
 #define PADDLE_SPEED 8
 #define CPU_SPEED 6
 #define WIN_SCORE 3
+#define TITLE_DEMO_WAIT_FRAMES (60 * 10)
+#define DEMO_DURATION_FRAMES   (60 * 15)
 
 #define MODE_ONE_PLAYER 1
 #define MODE_TWO_PLAYER 2
@@ -28,9 +30,10 @@
 #define KEY_UP    0x3c
 #define KEY_DOWN  0x3e
 
-#define JOY_UP      0x01
-#define JOY_DOWN    0x02
-#define JOY_BUTTON  0x20
+#define JOY_UP            0x01
+#define JOY_DOWN          0x02
+#define JOY_BUTTON        0x20
+#define JOY_ACTIVITY_MASK 0x6f
 
 #define CRTC_R04 ((void *)0x00E80008UL)
 #define CRTC_R05 ((void *)0x00E8000AUL)
@@ -58,15 +61,23 @@ typedef struct {
 typedef enum {
   GAME_MODE_TITLE,
   GAME_MODE_PONG,
+  GAME_MODE_DEMO,
   GAME_MODE_WINNER,
   GAME_MODE_EXIT,
   GAME_MODE_COUNT = GAME_MODE_EXIT
 } GameModeId;
 
+typedef enum {
+  PONG_CONTROLLER_PLAYER1,
+  PONG_CONTROLLER_PLAYER2,
+  PONG_CONTROLLER_CPU
+} PongController;
+
 typedef struct GameContext GameContext;
 
 typedef struct {
   int selected;
+  int idle_frames;
   int old_up;
   int old_down;
   int old_confirm;
@@ -76,11 +87,17 @@ typedef struct {
   Vec2i left;
   Vec2i right;
   Ball ball;
+  PongController left_controller;
+  PongController right_controller;
   int mode;
   int left_score;
   int right_score;
   int frame;
 } PongGameState;
+
+typedef struct {
+  int elapsed_frames;
+} DemoState;
 
 typedef struct {
   int player;
@@ -102,6 +119,7 @@ struct GameContext {
   ApplicationState application;
   TitleState title;
   PongGameState pong;
+  DemoState demo;
   WinnerState winner;
 };
 
@@ -289,6 +307,20 @@ static int either_pad_down(int mask) {
   return pad_down(0, mask) || pad_down(1, mask);
 }
 
+static int pad_has_activity(int port) {
+  return (_iocs_joyget(port) & JOY_ACTIVITY_MASK) != JOY_ACTIVITY_MASK;
+}
+
+static int input_has_activity(void) {
+  if (_iocs_b_keysns() != 0) return 1;
+  if (key_down(KEY_ESC) || key_down(KEY_Q) ||
+      key_down(KEY_W) || key_down(KEY_S) ||
+      key_down(KEY_SPACE) || key_down(KEY_UP) || key_down(KEY_DOWN)) {
+    return 1;
+  }
+  return pad_has_activity(0) || pad_has_activity(1);
+}
+
 static void draw_title(int selected) {
   _iocs_g_clr_on();
   draw_frame(16, 16, FIELD_W - 32, FIELD_H - 32, 4, COLOR_ACCENT);
@@ -320,6 +352,7 @@ static void title_initialize(GameContext *context) {
   TitleState *state = &context->title;
 
   state->selected = MODE_ONE_PLAYER;
+  state->idle_frames = 0;
   draw_title(state->selected);
   state->old_up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
   state->old_down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
@@ -334,8 +367,10 @@ static GameModeId title_update(GameContext *context) {
   int up;
   int down;
   int confirm;
+  int activity;
 
   if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  activity = input_has_activity();
   up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
   down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
   confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
@@ -365,6 +400,11 @@ static GameModeId title_update(GameContext *context) {
   state->old_up = up;
   state->old_down = down;
   state->old_confirm = confirm;
+  if (activity || event >= 0) {
+    state->idle_frames = 0;
+  } else if (++state->idle_frames >= TITLE_DEMO_WAIT_FRAMES) {
+    return GAME_MODE_DEMO;
+  }
   return GAME_MODE_TITLE;
 }
 
@@ -384,8 +424,12 @@ static void pong_reset_ball(PongGameState *state, int direction) {
   state->ball.vy = (state->frame & 1) ? 3 : -3;
 }
 
-static void pong_state_initialize(PongGameState *state, int mode) {
+static void pong_state_initialize(PongGameState *state, int mode,
+                                  PongController left,
+                                  PongController right) {
   state->mode = mode;
+  state->left_controller = left;
+  state->right_controller = right;
   state->left.x = 28;
   state->right.x = FIELD_W - 28 - PADDLE_W;
   state->left.y = (FIELD_H - PADDLE_H) / 2;
@@ -396,33 +440,58 @@ static void pong_state_initialize(PongGameState *state, int mode) {
   pong_reset_ball(state, 1);
 }
 
-static Controls read_controls(int mode) {
+static void read_controller(PongController controller, int *up, int *down) {
+  *up = 0;
+  *down = 0;
+  if (controller == PONG_CONTROLLER_PLAYER1) {
+    *up = key_down(KEY_W) || pad_down(0, JOY_UP);
+    *down = key_down(KEY_S) || pad_down(0, JOY_DOWN);
+  } else if (controller == PONG_CONTROLLER_PLAYER2) {
+    *up = key_down(KEY_UP) || pad_down(1, JOY_UP);
+    *down = key_down(KEY_DOWN) || pad_down(1, JOY_DOWN);
+  }
+}
+
+static Controls read_controls(const PongGameState *state) {
   Controls input;
-  input.left_up = key_down(KEY_W) || pad_down(0, JOY_UP);
-  input.left_down = key_down(KEY_S) || pad_down(0, JOY_DOWN);
-  input.right_up = mode == MODE_TWO_PLAYER && (key_down(KEY_UP) || pad_down(1, JOY_UP));
-  input.right_down = mode == MODE_TWO_PLAYER && (key_down(KEY_DOWN) || pad_down(1, JOY_DOWN));
+  read_controller(state->left_controller, &input.left_up, &input.left_down);
+  read_controller(state->right_controller, &input.right_up, &input.right_down);
   input.quit = key_down(KEY_ESC) || key_down(KEY_Q);
   return input;
 }
 
-static void pong_move_paddles(PongGameState *state, const Controls *input) {
+static void pong_move_cpu_paddle(PongGameState *state, Vec2i *paddle,
+                                 int is_left) {
+  int paddle_center;
+  int target = FIELD_H / 2;
+
+  if ((state->frame & 1) != 0) return;
+  if ((is_left && state->ball.vx < 0) ||
+      (!is_left && state->ball.vx > 0)) {
+    target = state->ball.y + BALL_SIZE / 2;
+    target += ((state->frame >> 5) & 1) ? 6 : -6;
+  }
+
+  paddle_center = paddle->y + PADDLE_H / 2;
+  if (paddle_center < target - 5) paddle->y += CPU_SPEED;
+  if (paddle_center > target + 5) paddle->y -= CPU_SPEED;
+}
+
+static void pong_move_controllers(PongGameState *state,
+                                  const Controls *input) {
   if (input->left_up) state->left.y -= PADDLE_SPEED;
   if (input->left_down) state->left.y += PADDLE_SPEED;
   if (input->right_up) state->right.y -= PADDLE_SPEED;
   if (input->right_down) state->right.y += PADDLE_SPEED;
-  clamp_in_field(&state->left.y, 3, FIELD_H - PADDLE_H - 3);
-  clamp_in_field(&state->right.y, 3, FIELD_H - PADDLE_H - 3);
-}
 
-static void pong_move_cpu(PongGameState *state) {
-  int paddle_center;
-  int ball_center;
-  if (state->mode != MODE_ONE_PLAYER) return;
-  paddle_center = state->right.y + PADDLE_H / 2;
-  ball_center = state->ball.y + BALL_SIZE / 2;
-  if (paddle_center < ball_center - 5) state->right.y += CPU_SPEED;
-  if (paddle_center > ball_center + 5) state->right.y -= CPU_SPEED;
+  if (state->left_controller == PONG_CONTROLLER_CPU) {
+    pong_move_cpu_paddle(state, &state->left, 1);
+  }
+  if (state->right_controller == PONG_CONTROLLER_CPU) {
+    pong_move_cpu_paddle(state, &state->right, 0);
+  }
+
+  clamp_in_field(&state->left.y, 3, FIELD_H - PADDLE_H - 3);
   clamp_in_field(&state->right.y, 3, FIELD_H - PADDLE_H - 3);
 }
 
@@ -526,26 +595,10 @@ static void pong_draw_match(const PongGameState *state) {
   pong_draw_dynamic(state, COLOR_ACCENT, COLOR_WHITE);
 }
 
-static void pong_initialize(GameContext *context) {
-  PongGameState *state = &context->pong;
+static void pong_game_update(PongGameState *state, const Controls *input) {
+  PongGameState previous = *state;
 
-  pong_state_initialize(state, state->mode);
-  pong_draw_match(state);
-}
-
-static GameModeId pong_update(GameContext *context) {
-  PongGameState *state = &context->pong;
-  PongGameState previous;
-  Controls input;
-
-  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
-  previous = *state;
-  input = read_controls(state->mode);
-  flush_key_buffer();
-  if (input.quit) return GAME_MODE_TITLE;
-
-  pong_move_paddles(state, &input);
-  pong_move_cpu(state);
+  pong_move_controllers(state, input);
   pong_update_ball(state);
   ++state->frame;
   pong_restore_ball_background(&previous, state);
@@ -553,7 +606,29 @@ static GameModeId pong_update(GameContext *context) {
   pong_redraw_paddle(state->right.x, previous.right.y, state->right.y);
   draw_fill(state->ball.x, state->ball.y,
             BALL_SIZE, BALL_SIZE, COLOR_WHITE);
+}
 
+static void pong_initialize(GameContext *context) {
+  PongGameState *state = &context->pong;
+  PongController right = state->mode == MODE_TWO_PLAYER
+                       ? PONG_CONTROLLER_PLAYER2
+                       : PONG_CONTROLLER_CPU;
+
+  pong_state_initialize(state, state->mode,
+                        PONG_CONTROLLER_PLAYER1, right);
+  pong_draw_match(state);
+}
+
+static GameModeId pong_update(GameContext *context) {
+  PongGameState *state = &context->pong;
+  Controls input;
+
+  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  input = read_controls(state);
+  flush_key_buffer();
+  if (input.quit) return GAME_MODE_TITLE;
+
+  pong_game_update(state, &input);
   if (state->left_score >= WIN_SCORE) {
     context->winner.player = 1;
     return GAME_MODE_WINNER;
@@ -567,6 +642,41 @@ static GameModeId pong_update(GameContext *context) {
 
 static void pong_finalize(GameContext *context) {
   (void)context;
+}
+
+static void demo_initialize(GameContext *context) {
+  PongGameState *pong = &context->pong;
+
+  context->demo.elapsed_frames = 0;
+  pong_state_initialize(pong, MODE_TWO_PLAYER,
+                        PONG_CONTROLLER_CPU, PONG_CONTROLLER_CPU);
+  pong_draw_match(pong);
+  flush_key_buffer();
+}
+
+static GameModeId demo_update(GameContext *context) {
+  PongGameState *pong = &context->pong;
+  Controls input = {0, 0, 0, 0, 0};
+
+  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  if (input_has_activity()) return GAME_MODE_TITLE;
+
+  pong_game_update(pong, &input);
+  if (pong->left_score >= WIN_SCORE ||
+      pong->right_score >= WIN_SCORE) {
+    pong->left_score = 0;
+    pong->right_score = 0;
+    draw_score(pong);
+  }
+  if (++context->demo.elapsed_frames >= DEMO_DURATION_FRAMES) {
+    return GAME_MODE_TITLE;
+  }
+  return GAME_MODE_DEMO;
+}
+
+static void demo_finalize(GameContext *context) {
+  (void)context;
+  flush_key_buffer();
 }
 
 static void draw_crown(void) {
@@ -628,6 +738,7 @@ static int application_initialize(GameContext *context) {
 static const GameMode game_modes[GAME_MODE_COUNT] = {
   {title_initialize, title_update, title_finalize},
   {pong_initialize, pong_update, pong_finalize},
+  {demo_initialize, demo_update, demo_finalize},
   {winner_initialize, winner_update, winner_finalize}
 };
 
