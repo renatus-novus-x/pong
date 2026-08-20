@@ -55,6 +55,23 @@ typedef struct {
   int vy;
 } Ball;
 
+typedef enum {
+  GAME_MODE_TITLE,
+  GAME_MODE_PONG,
+  GAME_MODE_WINNER,
+  GAME_MODE_EXIT,
+  GAME_MODE_COUNT = GAME_MODE_EXIT
+} GameModeId;
+
+typedef struct GameContext GameContext;
+
+typedef struct {
+  int selected;
+  int old_up;
+  int old_down;
+  int old_confirm;
+} TitleState;
+
 typedef struct {
   Vec2i left;
   Vec2i right;
@@ -66,13 +83,27 @@ typedef struct {
 } PongGameState;
 
 typedef struct {
+  int player;
+  struct iocs_time start;
+} WinnerState;
+
+typedef struct {
   int old_mode;
+  GameModeId mode;
 } ApplicationState;
 
 typedef struct {
+  void (*initialize)(GameContext *context);
+  GameModeId (*update)(GameContext *context);
+  void (*finalize)(GameContext *context);
+} GameMode;
+
+struct GameContext {
   ApplicationState application;
+  TitleState title;
   PongGameState pong;
-} GameContext;
+  WinnerState winner;
+};
 
 typedef struct {
   int left_up;
@@ -285,46 +316,60 @@ static void move_title_cursor(int *selected, int next) {
   *selected = next;
 }
 
-static int title_screen(void) {
-  int selected = MODE_ONE_PLAYER;
-  int old_up;
-  int old_down;
-  int old_confirm;
-  draw_title(selected);
-  old_up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
-  old_down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
-  old_confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
+static void title_initialize(GameContext *context) {
+  TitleState *state = &context->title;
 
-  for (;;) {
-    int event;
-    int scan;
-    int ascii;
-    int up;
-    int down;
-    int confirm;
-    if (wait_vdisp() != 0) return 0;
-    up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
-    down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
-    confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
-    event = poll_key();
-    scan = event < 0 ? -1 : ((event >> 8) & 0x7f);
-    ascii = event < 0 ? -1 : (event & 0xff);
-    if (ascii == '1') return MODE_ONE_PLAYER;
-    if (ascii == '2') return MODE_TWO_PLAYER;
-    if (scan == KEY_ESC || scan == KEY_Q || ascii == 'q' || ascii == 'Q') return 0;
-    if ((up && !old_up) || scan == KEY_UP || scan == KEY_W) {
-      move_title_cursor(&selected, MODE_ONE_PLAYER);
-    }
-    if ((down && !old_down) || scan == KEY_DOWN || scan == KEY_S) {
-      move_title_cursor(&selected, MODE_TWO_PLAYER);
-    }
-    if ((confirm && !old_confirm) || ascii == ' ' || ascii == '\r' || ascii == '\n') {
-      return selected;
-    }
-    old_up = up;
-    old_down = down;
-    old_confirm = confirm;
+  state->selected = MODE_ONE_PLAYER;
+  draw_title(state->selected);
+  state->old_up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
+  state->old_down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
+  state->old_confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
+}
+
+static GameModeId title_update(GameContext *context) {
+  TitleState *state = &context->title;
+  int event;
+  int scan;
+  int ascii;
+  int up;
+  int down;
+  int confirm;
+
+  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
+  down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
+  confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
+  event = poll_key();
+  scan = event < 0 ? -1 : ((event >> 8) & 0x7f);
+  ascii = event < 0 ? -1 : (event & 0xff);
+
+  if (ascii == '1' || ascii == '2') {
+    context->pong.mode = ascii == '1' ? MODE_ONE_PLAYER : MODE_TWO_PLAYER;
+    return GAME_MODE_PONG;
   }
+  if (scan == KEY_ESC || scan == KEY_Q || ascii == 'q' || ascii == 'Q') {
+    return GAME_MODE_EXIT;
+  }
+  if ((up && !state->old_up) || scan == KEY_UP || scan == KEY_W) {
+    move_title_cursor(&state->selected, MODE_ONE_PLAYER);
+  }
+  if ((down && !state->old_down) || scan == KEY_DOWN || scan == KEY_S) {
+    move_title_cursor(&state->selected, MODE_TWO_PLAYER);
+  }
+  if ((confirm && !state->old_confirm) ||
+      ascii == ' ' || ascii == '\r' || ascii == '\n') {
+    context->pong.mode = state->selected;
+    return GAME_MODE_PONG;
+  }
+
+  state->old_up = up;
+  state->old_down = down;
+  state->old_confirm = confirm;
+  return GAME_MODE_TITLE;
+}
+
+static void title_finalize(GameContext *context) {
+  (void)context;
 }
 
 static void clamp_in_field(int *value, int min, int max) {
@@ -339,7 +384,7 @@ static void pong_reset_ball(PongGameState *state, int direction) {
   state->ball.vy = (state->frame & 1) ? 3 : -3;
 }
 
-static void pong_init(PongGameState *state, int mode) {
+static void pong_state_initialize(PongGameState *state, int mode) {
   state->mode = mode;
   state->left.x = 28;
   state->right.x = FIELD_W - 28 - PADDLE_W;
@@ -481,28 +526,47 @@ static void pong_draw_match(const PongGameState *state) {
   pong_draw_dynamic(state, COLOR_ACCENT, COLOR_WHITE);
 }
 
-static int pong_match(PongGameState *state) {
-  PongGameState previous;
+static void pong_initialize(GameContext *context) {
+  PongGameState *state = &context->pong;
+
+  pong_state_initialize(state, state->mode);
   pong_draw_match(state);
-  for (;;) {
-    Controls input;
-    if (wait_vdisp() != 0) return 0;
-    previous = *state;
-    input = read_controls(state->mode);
-    flush_key_buffer();
-    if (input.quit) return 0;
-    pong_move_paddles(state, &input);
-    pong_move_cpu(state);
-    pong_update_ball(state);
-    ++state->frame;
-    pong_restore_ball_background(&previous, state);
-    pong_redraw_paddle(state->left.x, previous.left.y, state->left.y);
-    pong_redraw_paddle(state->right.x, previous.right.y, state->right.y);
-    draw_fill(state->ball.x, state->ball.y,
-              BALL_SIZE, BALL_SIZE, COLOR_WHITE);
-    if (state->left_score >= WIN_SCORE) return 1;
-    if (state->right_score >= WIN_SCORE) return 2;
+}
+
+static GameModeId pong_update(GameContext *context) {
+  PongGameState *state = &context->pong;
+  PongGameState previous;
+  Controls input;
+
+  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  previous = *state;
+  input = read_controls(state->mode);
+  flush_key_buffer();
+  if (input.quit) return GAME_MODE_TITLE;
+
+  pong_move_paddles(state, &input);
+  pong_move_cpu(state);
+  pong_update_ball(state);
+  ++state->frame;
+  pong_restore_ball_background(&previous, state);
+  pong_redraw_paddle(state->left.x, previous.left.y, state->left.y);
+  pong_redraw_paddle(state->right.x, previous.right.y, state->right.y);
+  draw_fill(state->ball.x, state->ball.y,
+            BALL_SIZE, BALL_SIZE, COLOR_WHITE);
+
+  if (state->left_score >= WIN_SCORE) {
+    context->winner.player = 1;
+    return GAME_MODE_WINNER;
   }
+  if (state->right_score >= WIN_SCORE) {
+    context->winner.player = 2;
+    return GAME_MODE_WINNER;
+  }
+  return GAME_MODE_PONG;
+}
+
+static void pong_finalize(GameContext *context) {
+  (void)context;
 }
 
 static void draw_crown(void) {
@@ -513,11 +577,16 @@ static void draw_crown(void) {
   draw_fill(198, 130, 116, 14, COLOR_WHITE);
 }
 
-static void winner_screen(int mode, int winner) {
+static void winner_initialize(GameContext *context) {
+  const PongGameState *pong = &context->pong;
+  WinnerState *state = &context->winner;
   const char *message;
-  struct iocs_time start;
-  if (winner == 1) message = mode == MODE_ONE_PLAYER ? "PLAYER WINS" : "PLAYER 1 WINS";
-  else message = mode == MODE_ONE_PLAYER ? "CPU WINS" : "PLAYER 2 WINS";
+
+  if (state->player == 1) {
+    message = pong->mode == MODE_ONE_PLAYER ? "PLAYER WINS" : "PLAYER 1 WINS";
+  } else {
+    message = pong->mode == MODE_ONE_PLAYER ? "CPU WINS" : "PLAYER 2 WINS";
+  }
   _iocs_g_clr_on();
   draw_frame(16, 16, FIELD_W - 32, FIELD_H - 32, 4, COLOR_ACCENT);
   draw_crown();
@@ -526,11 +595,22 @@ static void winner_screen(int mode, int winner) {
   draw_centered("CONGRATULATIONS", 330, 3, COLOR_WHITE);
   draw_centered("BACK TO TITLE", 402, 3, COLOR_WHITE);
   flush_key_buffer();
-  start = _iocs_ontime();
-  while (ontime_diff_cs(start, _iocs_ontime()) < WINNER_HOLD_CS) {
-    if (wait_vdisp() != 0) break;
-    flush_key_buffer();
+  state->start = _iocs_ontime();
+}
+
+static GameModeId winner_update(GameContext *context) {
+  WinnerState *state = &context->winner;
+
+  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  flush_key_buffer();
+  if (ontime_diff_cs(state->start, _iocs_ontime()) >= WINNER_HOLD_CS) {
+    return GAME_MODE_TITLE;
   }
+  return GAME_MODE_WINNER;
+}
+
+static void winner_finalize(GameContext *context) {
+  (void)context;
   flush_key_buffer();
 }
 
@@ -545,13 +625,26 @@ static int application_initialize(GameContext *context) {
   return 1;
 }
 
+static const GameMode game_modes[GAME_MODE_COUNT] = {
+  {title_initialize, title_update, title_finalize},
+  {pong_initialize, pong_update, pong_finalize},
+  {winner_initialize, winner_update, winner_finalize}
+};
+
 static void application_loop(GameContext *context) {
-  int mode;
-  int winner;
-  while ((mode = title_screen()) != 0) {
-    pong_init(&context->pong, mode);
-    winner = pong_match(&context->pong);
-    if (winner != 0) winner_screen(mode, winner);
+  ApplicationState *application = &context->application;
+
+  application->mode = GAME_MODE_TITLE;
+  game_modes[application->mode].initialize(context);
+
+  while (application->mode != GAME_MODE_EXIT) {
+    GameModeId current = application->mode;
+    GameModeId next = game_modes[current].update(context);
+
+    if (next == current) continue;
+    game_modes[current].finalize(context);
+    application->mode = next;
+    if (next != GAME_MODE_EXIT) game_modes[next].initialize(context);
   }
 }
 
