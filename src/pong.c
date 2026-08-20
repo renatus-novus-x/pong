@@ -63,8 +63,16 @@ typedef struct {
   int left_score;
   int right_score;
   int frame;
+} PongGameState;
+
+typedef struct {
   int old_mode;
-} PongState;
+} ApplicationState;
+
+typedef struct {
+  ApplicationState application;
+  PongGameState pong;
+} GameContext;
 
 typedef struct {
   int left_up;
@@ -149,11 +157,12 @@ static int set_60hz(void) {
   return 0;
 }
 
-static int restore_mode(int mode) {
+static void application_finalize(GameContext *context) {
+  int mode = context->application.old_mode;
+
   if (mode < 0 || mode > 0x7f) mode = 12;
   _iocs_crtmod(mode);
   _iocs_g_clr_on();
-  return 0;
 }
 
 static void draw_fill_block(int x1, int y1, int x2, int y2, iocs_color_t color) {
@@ -323,14 +332,14 @@ static void clamp_in_field(int *value, int min, int max) {
   else if (*value > max) *value = max;
 }
 
-static void pong_reset_ball(PongState *state, int direction) {
+static void pong_reset_ball(PongGameState *state, int direction) {
   state->ball.x = (FIELD_W - BALL_SIZE) / 2;
   state->ball.y = (FIELD_H - BALL_SIZE) / 2;
   state->ball.vx = direction * BALL_SPEED;
   state->ball.vy = (state->frame & 1) ? 3 : -3;
 }
 
-static void pong_init(PongState *state, int mode) {
+static void pong_init(PongGameState *state, int mode) {
   state->mode = mode;
   state->left.x = 28;
   state->right.x = FIELD_W - 28 - PADDLE_W;
@@ -352,7 +361,7 @@ static Controls read_controls(int mode) {
   return input;
 }
 
-static void pong_move_paddles(PongState *state, const Controls *input) {
+static void pong_move_paddles(PongGameState *state, const Controls *input) {
   if (input->left_up) state->left.y -= PADDLE_SPEED;
   if (input->left_down) state->left.y += PADDLE_SPEED;
   if (input->right_up) state->right.y -= PADDLE_SPEED;
@@ -361,7 +370,7 @@ static void pong_move_paddles(PongState *state, const Controls *input) {
   clamp_in_field(&state->right.y, 3, FIELD_H - PADDLE_H - 3);
 }
 
-static void pong_move_cpu(PongState *state) {
+static void pong_move_cpu(PongGameState *state) {
   int paddle_center;
   int ball_center;
   if (state->mode != MODE_ONE_PLAYER) return;
@@ -377,7 +386,7 @@ static int ball_overlaps(const Ball *ball, const Vec2i *paddle) {
          ball->y < paddle->y + PADDLE_H && ball->y + BALL_SIZE > paddle->y;
 }
 
-static void pong_reflect(PongState *state, const Vec2i *paddle, int direction) {
+static void pong_reflect(PongGameState *state, const Vec2i *paddle, int direction) {
   int offset = state->ball.y + BALL_SIZE / 2 - (paddle->y + PADDLE_H / 2);
   state->ball.vx = direction * BALL_SPEED;
   state->ball.vy += offset / 10;
@@ -385,7 +394,7 @@ static void pong_reflect(PongState *state, const Vec2i *paddle, int direction) {
   if (state->ball.vy == 0) state->ball.vy = (state->frame & 1) ? 2 : -2;
 }
 
-static void pong_update_ball(PongState *state) {
+static void pong_update_ball(PongGameState *state) {
   state->ball.x += state->ball.vx;
   state->ball.y += state->ball.vy;
   if (state->ball.y <= 3) {
@@ -418,7 +427,7 @@ static void draw_center_line(void) {
   for (y = 8; y < FIELD_H - 8; y += 24) draw_fill(FIELD_W / 2 - 1, y, 3, 12, COLOR_WHITE);
 }
 
-static void draw_score(const PongState *state) {
+static void draw_score(const PongGameState *state) {
   char left[2];
   char right[2];
   left[0] = (char)('0' + state->left_score);
@@ -435,8 +444,8 @@ static int ball_overlaps_rect(const Ball *ball, int x, int y, int w, int h) {
          ball->y < y + h && ball->y + BALL_SIZE > y;
 }
 
-static void pong_restore_ball_background(const PongState *previous,
-                                         const PongState *state) {
+static void pong_restore_ball_background(const PongGameState *previous,
+                                         const PongGameState *state) {
   draw_fill(previous->ball.x, previous->ball.y,
             BALL_SIZE, BALL_SIZE, COLOR_BLACK);
 
@@ -451,7 +460,7 @@ static void pong_restore_ball_background(const PongState *previous,
   }
 }
 
-static void pong_draw_dynamic(const PongState *state, iocs_color_t paddle_color,
+static void pong_draw_dynamic(const PongGameState *state, iocs_color_t paddle_color,
                               iocs_color_t ball_color) {
   draw_fill(state->left.x, state->left.y, PADDLE_W, PADDLE_H, paddle_color);
   draw_fill(state->right.x, state->right.y, PADDLE_W, PADDLE_H, paddle_color);
@@ -464,7 +473,7 @@ static void pong_redraw_paddle(int x, int old_y, int new_y) {
   draw_fill(x, new_y, PADDLE_W, PADDLE_H, COLOR_ACCENT);
 }
 
-static void pong_draw_match(const PongState *state) {
+static void pong_draw_match(const PongGameState *state) {
   _iocs_g_clr_on();
   draw_frame(0, 0, FIELD_W, FIELD_H, 2, COLOR_WHITE);
   draw_center_line();
@@ -472,8 +481,8 @@ static void pong_draw_match(const PongState *state) {
   pong_draw_dynamic(state, COLOR_ACCENT, COLOR_WHITE);
 }
 
-static int pong_match(PongState *state) {
-  PongState previous;
+static int pong_match(PongGameState *state) {
+  PongGameState previous;
   pong_draw_match(state);
   for (;;) {
     Controls input;
@@ -525,31 +534,31 @@ static void winner_screen(int mode, int winner) {
   flush_key_buffer();
 }
 
-static int pong_begin(PongState *state) {
-  state->old_mode = _iocs_crtmod(-1);
+static int application_initialize(GameContext *context) {
+  context->application.old_mode = _iocs_crtmod(-1);
   _iocs_crtmod(12);
   _iocs_g_clr_on();
   if (set_60hz() != 0) {
-    restore_mode(state->old_mode);
+    application_finalize(context);
     return 0;
   }
   return 1;
 }
 
-static void pong_run(PongState *state) {
+static void application_loop(GameContext *context) {
   int mode;
   int winner;
   while ((mode = title_screen()) != 0) {
-    pong_init(state, mode);
-    winner = pong_match(state);
+    pong_init(&context->pong, mode);
+    winner = pong_match(&context->pong);
     if (winner != 0) winner_screen(mode, winner);
   }
 }
 
 int main(void) {
-  PongState state;
-  if (!pong_begin(&state)) return 0;
-  pong_run(&state);
-  restore_mode(state.old_mode);
+  GameContext context;
+  if (!application_initialize(&context)) return 0;
+  application_loop(&context);
+  application_finalize(&context);
   return 0;
 }
