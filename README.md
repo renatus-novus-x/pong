@@ -39,4 +39,10 @@ cd src
 make check-xdf
 ```
 
+## Run in WebX68k
+
+[Launch PONG in WebX68k](https://uraraworks.github.io/WebX68k/?cpu=10&ram=12&fd1=https://cdn.jsdelivr.net/gh/renatus-novus-x/pong@main/dist/pong.xdf&run=1)
+
+The link loads `dist/pong.xdf` from the repository's `main` branch and starts it automatically.
+
 The technical implementation report is available in [`docs/pong.pptx`](docs/pong.pptx).

@@ -39,4 +39,10 @@ cd src
 make check-xdf
 ```
 
+## WebX68kで起動
+
+[WebX68kでPONGを起動](https://uraraworks.github.io/WebX68k/?cpu=10&ram=12&fd1=https://cdn.jsdelivr.net/gh/renatus-novus-x/pong@main/dist/pong.xdf&run=1)
+
+このリンクはリポジトリの`main`ブランチから`dist/pong.xdf`を読み込み、自動的に起動します。
+
 技術的な実装内容は[`docs/pong.pptx`](docs/pong.pptx)にまとめています。
