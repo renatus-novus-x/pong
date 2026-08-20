@@ -1,8 +1,16 @@
 # PONG
 
-Human68kのランタイムAPIを使用しない、Sharp X68000向けベアメタルPONGです。C言語で実装しています。
+[English](README.md) | [日本語](README.ja.md)
 
-[English](README.md)
+<p align="center">
+  <img src="images/teaser.png" alt="Sharp X68000向けベアメタルPONG" width="512" height="480">
+</p>
+
+<p align="center">
+  <strong><a href="https://uraraworks.github.io/WebX68k/?cpu=10&ram=12&fd1=https://cdn.jsdelivr.net/gh/renatus-novus-x/pong@main/dist/pong.xdf&run=1">▶ WebX68kでPONGを起動</a></strong>
+</p>
+
+Human68kのランタイムAPIを使用しない、Sharp X68000向けベアメタルPONGです。C言語で実装しています。
 
 ## 特徴
 
@@ -38,11 +46,5 @@ make
 cd src
 make check-xdf
 ```
-
-## WebX68kで起動
-
-[WebX68kでPONGを起動](https://uraraworks.github.io/WebX68k/?cpu=10&ram=12&fd1=https://cdn.jsdelivr.net/gh/renatus-novus-x/pong@main/dist/pong.xdf&run=1)
-
-このリンクはリポジトリの`main`ブランチから`dist/pong.xdf`を読み込み、自動的に起動します。
 
 技術的な実装内容は[`docs/pong.pptx`](docs/pong.pptx)にまとめています。
