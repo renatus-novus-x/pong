@@ -14,6 +14,14 @@
 #define WIN_SCORE 3
 #define TITLE_DEMO_WAIT_FRAMES (60 * 10)
 #define DEMO_DURATION_FRAMES   (60 * 15)
+#define PADDLE_SE_FRAMES 7
+
+#define OPM_SE_CHANNEL      7
+#define OPM_KEY_ON_REG      0x08
+#define OPM_CHANNEL_REG     0x20
+#define OPM_KEY_CODE_REG    0x28
+#define OPM_PMS_AMS_REG     0x38
+#define OPM_KEY_ON_ALL      0x78
 
 #define MODE_ONE_PLAYER 1
 #define MODE_TWO_PLAYER 2
@@ -116,6 +124,10 @@ typedef struct {
 } ApplicationState;
 
 typedef struct {
+  int frames_left;
+} SoundState;
+
+typedef struct {
   void (*initialize)(GameContext *context);
   GameModeId (*update)(GameContext *context);
   void (*finalize)(GameContext *context);
@@ -123,6 +135,7 @@ typedef struct {
 
 struct GameContext {
   ApplicationState application;
+  SoundState sound;
   TitleState title;
   HowToPlayState how_to_play;
   PongGameState pong;
@@ -137,6 +150,21 @@ typedef struct {
   int right_down;
   int quit;
 } Controls;
+
+static const uint8_t opm_operator_registers[6] = {
+  0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0
+};
+
+static const uint8_t paddle_se_patch[4][6] = {
+  {0x01, 0x18, 0x1f, 0x12, 0x08, 0x4f},
+  {0x12, 0x28, 0x1f, 0x12, 0x08, 0x4f},
+  {0x25, 0x38, 0x1f, 0x12, 0x08, 0x4f},
+  {0x37, 0x20, 0x1f, 0x12, 0x08, 0x4f}
+};
+
+static const uint8_t paddle_se_pitch[PADDLE_SE_FRAMES] = {
+  0x5e, 0x5c, 0x5a, 0x59, 0x58, 0x56, 0x55
+};
 
 /* Compact 5 x 7 font: 0-9, then A-Z. */
 static const uint8_t font5x7[36][7] = {
@@ -213,9 +241,53 @@ static int set_60hz(void) {
   return 0;
 }
 
+static void sound_key_off(void) {
+  _iocs_opmset(OPM_KEY_ON_REG, OPM_SE_CHANNEL);
+}
+
+static void sound_initialize(SoundState *state) {
+  int op;
+  int reg;
+
+  sound_key_off();
+  _iocs_opmset(OPM_CHANNEL_REG + OPM_SE_CHANNEL, 0xc7);
+  _iocs_opmset(OPM_PMS_AMS_REG + OPM_SE_CHANNEL, 0x00);
+  for (op = 0; op < 4; ++op) {
+    for (reg = 0; reg < 6; ++reg) {
+      _iocs_opmset(opm_operator_registers[reg] +
+                   OPM_SE_CHANNEL + op * 8,
+                   paddle_se_patch[op][reg]);
+    }
+  }
+  state->frames_left = 0;
+}
+
+static void sound_play_paddle(SoundState *state) {
+  sound_key_off();
+  _iocs_opmset(OPM_KEY_CODE_REG + OPM_SE_CHANNEL, paddle_se_pitch[0]);
+  _iocs_opmset(OPM_KEY_ON_REG, OPM_KEY_ON_ALL | OPM_SE_CHANNEL);
+  state->frames_left = PADDLE_SE_FRAMES;
+}
+
+static void sound_update(SoundState *state) {
+  int frame;
+
+  if (state->frames_left <= 0) return;
+  frame = PADDLE_SE_FRAMES - state->frames_left;
+  _iocs_opmset(OPM_KEY_CODE_REG + OPM_SE_CHANNEL,
+               paddle_se_pitch[frame]);
+  if (--state->frames_left == 0) sound_key_off();
+}
+
+static void sound_finalize(SoundState *state) {
+  sound_key_off();
+  state->frames_left = 0;
+}
+
 static void application_finalize(GameContext *context) {
   int mode = context->application.old_mode;
 
+  sound_finalize(&context->sound);
   if (mode < 0 || mode > 0x7f) mode = 12;
   _iocs_crtmod(mode);
   _iocs_g_clr_on();
@@ -587,7 +659,7 @@ static void pong_reflect(PongGameState *state, const Vec2i *paddle, int directio
   if (state->ball.vy == 0) state->ball.vy = (state->frame & 1) ? 2 : -2;
 }
 
-static void pong_update_ball(PongGameState *state) {
+static void pong_update_ball(PongGameState *state, SoundState *sound) {
   state->ball.x += state->ball.vx;
   state->ball.y += state->ball.vy;
   if (state->ball.y <= 3) {
@@ -601,10 +673,12 @@ static void pong_update_ball(PongGameState *state) {
   if (state->ball.vx < 0 && ball_overlaps(&state->ball, &state->left)) {
     state->ball.x = state->left.x + PADDLE_W;
     pong_reflect(state, &state->left, 1);
+    sound_play_paddle(sound);
   }
   if (state->ball.vx > 0 && ball_overlaps(&state->ball, &state->right)) {
     state->ball.x = state->right.x - BALL_SIZE;
     pong_reflect(state, &state->right, -1);
+    sound_play_paddle(sound);
   }
   if (state->ball.x <= 2) {
     ++state->right_score;
@@ -674,11 +748,12 @@ static void pong_draw_match(const PongGameState *state) {
   pong_draw_dynamic(state, COLOR_ACCENT, COLOR_WHITE);
 }
 
-static void pong_game_update(PongGameState *state, const Controls *input) {
+static void pong_game_update(PongGameState *state, const Controls *input,
+                             SoundState *sound) {
   PongGameState previous = *state;
 
   pong_move_controllers(state, input);
-  pong_update_ball(state);
+  pong_update_ball(state, sound);
   ++state->frame;
   pong_restore_ball_background(&previous, state);
   pong_redraw_paddle(state->left.x, previous.left.y, state->left.y);
@@ -707,7 +782,7 @@ static GameModeId pong_update(GameContext *context) {
   flush_key_buffer();
   if (input.quit) return GAME_MODE_TITLE;
 
-  pong_game_update(state, &input);
+  pong_game_update(state, &input, &context->sound);
   if (state->left_score >= WIN_SCORE) {
     context->winner.player = 1;
     return GAME_MODE_WINNER;
@@ -740,7 +815,7 @@ static GameModeId demo_update(GameContext *context) {
   if (wait_vdisp() != 0) return GAME_MODE_EXIT;
   if (input_has_activity()) return GAME_MODE_TITLE;
 
-  pong_game_update(pong, &input);
+  pong_game_update(pong, &input, &context->sound);
   if (pong->left_score >= WIN_SCORE ||
       pong->right_score >= WIN_SCORE) {
     pong->left_score = 0;
@@ -804,6 +879,7 @@ static void winner_finalize(GameContext *context) {
 }
 
 static int application_initialize(GameContext *context) {
+  context->sound.frames_left = 0;
   context->application.old_mode = _iocs_crtmod(-1);
   _iocs_crtmod(12);
   _iocs_g_clr_on();
@@ -811,6 +887,7 @@ static int application_initialize(GameContext *context) {
     application_finalize(context);
     return 0;
   }
+  sound_initialize(&context->sound);
   return 1;
 }
 
@@ -832,6 +909,7 @@ static void application_loop(GameContext *context) {
     GameModeId current = application->mode;
     GameModeId next = game_modes[current].update(context);
 
+    sound_update(&context->sound);
     if (next == current) continue;
     game_modes[current].finalize(context);
     application->mode = next;
