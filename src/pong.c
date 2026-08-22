@@ -26,6 +26,8 @@
 #define TITLE_CURSOR_H 35
 #define TITLE_PROMPT_BLINK_FRAMES 30
 
+#define HOW_PROMPT_BLINK_FRAMES 30
+
 #define OPM_SE_CHANNEL      7
 #define OPM_KEY_ON_REG      0x08
 #define OPM_CHANNEL_REG     0x20
@@ -108,6 +110,8 @@ typedef struct {
 typedef struct {
   int input_released;
   int blocked_scan;
+  int prompt_frame;
+  int prompt_visible;
 } HowToPlayState;
 
 typedef struct {
@@ -178,6 +182,7 @@ static const uint8_t paddle_se_patch[4][6] = {
 static const uint8_t paddle_se_pitch[PADDLE_SE_FRAMES] = {
   0x5e, 0x5c, 0x5a, 0x59, 0x58, 0x56, 0x55
 };
+
 
 /* Compact 5 x 7 font: 0-9, then A-Z. */
 static const uint8_t font5x7[36][7] = {
@@ -567,6 +572,29 @@ static void title_finalize(GameContext *context) {
   (void)context;
 }
 
+
+static int how_controls_y(int mode) {
+  return mode == MODE_ONE_PLAYER ? 190 : 176;
+}
+
+static void draw_how_prompts(int mode, iocs_color_t color) {
+  draw_centered("W S OR PAD 1 UP DOWN",
+                how_controls_y(mode), 3, color);
+  if (mode == MODE_TWO_PLAYER) {
+    draw_centered("CURSOR UP DOWN OR PAD 2", 258, 3, color);
+  }
+  draw_centered("ESC BACK TO TITLE", 356, 3, color);
+}
+
+
+static void animate_how_prompts(HowToPlayState *state, int mode) {
+  if (++state->prompt_frame < HOW_PROMPT_BLINK_FRAMES) return;
+  state->prompt_frame = 0;
+  state->prompt_visible = !state->prompt_visible;
+  draw_how_prompts(mode,
+                   state->prompt_visible ? COLOR_ACCENT : COLOR_BLACK);
+}
+
 static void draw_how_to_play(int mode) {
   _iocs_g_clr_on();
   draw_frame(16, 16, FIELD_W - 32, FIELD_H - 32, 4, COLOR_ACCENT);
@@ -576,17 +604,17 @@ static void draw_how_to_play(int mode) {
 
   if (mode == MODE_ONE_PLAYER) {
     draw_centered("PLAYER 1 LEFT PADDLE", 154, 3, COLOR_WHITE);
-    draw_centered("W S OR PAD 1 UP DOWN", 190, 3, COLOR_ACCENT);
+
     draw_centered("PLAYER 2 IS CPU", 244, 3, COLOR_WHITE);
   } else {
     draw_centered("PLAYER 1 LEFT PADDLE", 142, 3, COLOR_WHITE);
-    draw_centered("W S OR PAD 1 UP DOWN", 176, 3, COLOR_ACCENT);
+
     draw_centered("PLAYER 2 RIGHT PADDLE", 224, 3, COLOR_WHITE);
-    draw_centered("CURSOR UP DOWN OR PAD 2", 258, 3, COLOR_ACCENT);
+
   }
 
   draw_centered("FIRST TO 3 POINTS WINS", 316, 3, COLOR_WHITE);
-  draw_centered("ESC BACK TO TITLE", 356, 3, COLOR_ACCENT);
+  draw_how_prompts(mode, COLOR_ACCENT);
   draw_centered("SPACE RETURN OR PAD A", 414, 3, COLOR_WHITE);
 }
 
@@ -594,6 +622,8 @@ static void how_to_play_initialize(GameContext *context) {
   HowToPlayState *state = &context->how_to_play;
 
   state->input_released = 0;
+  state->prompt_frame = 0;
+  state->prompt_visible = 1;
   flush_key_buffer();
   draw_how_to_play(context->pong.mode);
 }
@@ -607,6 +637,7 @@ static GameModeId how_to_play_update(GameContext *context) {
   int blocked;
 
   if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  animate_how_prompts(state, context->pong.mode);
   confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
   blocked = state->blocked_scan >= 0 && key_down(state->blocked_scan);
   event = poll_key();
