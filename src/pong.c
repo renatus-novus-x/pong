@@ -16,6 +16,16 @@
 #define DEMO_DURATION_FRAMES   (60 * 15)
 #define PADDLE_SE_FRAMES 7
 
+#define TITLE_CURSOR_X            98
+#define TITLE_CURSOR_TRAVEL       12
+#define TITLE_CURSOR_RIGHT_FRAMES 4
+#define TITLE_CURSOR_LEFT_FRAMES  18
+#define TITLE_CURSOR_PAUSE_FRAMES 10
+#define TITLE_CURSOR_CYCLE_FRAMES   (TITLE_CURSOR_RIGHT_FRAMES + TITLE_CURSOR_LEFT_FRAMES +    TITLE_CURSOR_PAUSE_FRAMES)
+#define TITLE_CURSOR_W 25
+#define TITLE_CURSOR_H 35
+#define TITLE_PROMPT_BLINK_FRAMES 30
+
 #define OPM_SE_CHANNEL      7
 #define OPM_KEY_ON_REG      0x08
 #define OPM_CHANNEL_REG     0x20
@@ -86,6 +96,10 @@ typedef struct GameContext GameContext;
 typedef struct {
   int selected;
   int idle_frames;
+  int cursor_frame;
+  int cursor_x;
+  int prompt_frame;
+  int prompt_visible;
   int old_up;
   int old_down;
   int old_confirm;
@@ -406,24 +420,74 @@ static void draw_title(int selected) {
   draw_centered("PONG", 86, 12, COLOR_ACCENT);
   draw_centered("PONG", 78, 12, COLOR_WHITE);
   draw_frame(72, 224, 368, 146, 3, COLOR_WHITE);
-  draw_text(selected == MODE_ONE_PLAYER ? ">" : " ", 98, 252, 5, COLOR_ACCENT);
+  draw_text(selected == MODE_ONE_PLAYER ? ">" : " ",
+            TITLE_CURSOR_X, 252, 5, COLOR_ACCENT);
   draw_text("1 PLAYER", 142, 252, 5, COLOR_WHITE);
-  draw_text(selected == MODE_TWO_PLAYER ? ">" : " ", 98, 310, 5, COLOR_ACCENT);
+  draw_text(selected == MODE_TWO_PLAYER ? ">" : " ",
+            TITLE_CURSOR_X, 310, 5, COLOR_ACCENT);
   draw_text("2 PLAYERS", 142, 310, 5, COLOR_WHITE);
   draw_centered("UP DOWN AND START", 394, 3, COLOR_WHITE);
   draw_centered("KEYBOARD OR PAD", 424, 3, COLOR_ACCENT);
 }
 
-static void move_title_cursor(int *selected, int next) {
+static int title_cursor_y(int selected) {
+  return selected == MODE_ONE_PLAYER ? 252 : 310;
+}
+
+static int title_cursor_offset(int frame) {
+  if (frame < TITLE_CURSOR_RIGHT_FRAMES) {
+    int t = frame + 1;
+    int duration = TITLE_CURSOR_RIGHT_FRAMES;
+    return TITLE_CURSOR_TRAVEL * t * (2 * duration - t) /
+           (duration * duration);
+  }
+
+  frame -= TITLE_CURSOR_RIGHT_FRAMES;
+  if (frame < TITLE_CURSOR_LEFT_FRAMES) {
+    return TITLE_CURSOR_TRAVEL * (TITLE_CURSOR_LEFT_FRAMES - frame - 1) /
+           TITLE_CURSOR_LEFT_FRAMES;
+  }
+  return 0;
+}
+
+static void animate_title_cursor(TitleState *state) {
+  int next_x = TITLE_CURSOR_X + title_cursor_offset(state->cursor_frame);
+  int y = title_cursor_y(state->selected);
+
+  if (next_x != state->cursor_x) {
+    draw_fill(state->cursor_x, y,
+              TITLE_CURSOR_W, TITLE_CURSOR_H, COLOR_BLACK);
+    draw_text(">", next_x, y, 5, COLOR_ACCENT);
+    state->cursor_x = next_x;
+  }
+
+  if (++state->cursor_frame >= TITLE_CURSOR_CYCLE_FRAMES) {
+    state->cursor_frame = 0;
+  }
+}
+
+static void animate_title_prompt(TitleState *state) {
+  if (++state->prompt_frame < TITLE_PROMPT_BLINK_FRAMES) return;
+  state->prompt_frame = 0;
+  state->prompt_visible = !state->prompt_visible;
+  draw_centered("UP DOWN AND START", 394, 3,
+                state->prompt_visible ? COLOR_WHITE : COLOR_BLACK);
+}
+
+static void move_title_cursor(TitleState *state, int next) {
   int old_y;
   int next_y;
 
-  if (*selected == next) return;
-  old_y = *selected == MODE_ONE_PLAYER ? 252 : 310;
-  next_y = next == MODE_ONE_PLAYER ? 252 : 310;
-  draw_fill(98, old_y, 25, 35, COLOR_BLACK);
-  draw_text(">", 98, next_y, 5, COLOR_ACCENT);
-  *selected = next;
+  if (state->selected == next) return;
+  old_y = title_cursor_y(state->selected);
+  next_y = title_cursor_y(next);
+  draw_fill(TITLE_CURSOR_X, old_y,
+            TITLE_CURSOR_W + TITLE_CURSOR_TRAVEL,
+            TITLE_CURSOR_H, COLOR_BLACK);
+  state->selected = next;
+  state->cursor_frame = 0;
+  state->cursor_x = TITLE_CURSOR_X;
+  draw_text(">", state->cursor_x, next_y, 5, COLOR_ACCENT);
 }
 
 static void title_initialize(GameContext *context) {
@@ -431,6 +495,10 @@ static void title_initialize(GameContext *context) {
 
   state->selected = MODE_ONE_PLAYER;
   state->idle_frames = 0;
+  state->cursor_frame = 0;
+  state->cursor_x = TITLE_CURSOR_X;
+  state->prompt_frame = 0;
+  state->prompt_visible = 1;
   draw_title(state->selected);
   state->old_up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
   state->old_down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
@@ -472,16 +540,18 @@ static GameModeId title_update(GameContext *context) {
     return GAME_MODE_EXIT;
   }
   if ((up && !state->old_up) || scan == KEY_UP || scan == KEY_W) {
-    move_title_cursor(&state->selected, MODE_ONE_PLAYER);
+    move_title_cursor(state, MODE_ONE_PLAYER);
   }
   if ((down && !state->old_down) || scan == KEY_DOWN || scan == KEY_S) {
-    move_title_cursor(&state->selected, MODE_TWO_PLAYER);
+    move_title_cursor(state, MODE_TWO_PLAYER);
   }
   if ((confirm && !state->old_confirm) ||
       ascii == ' ' || ascii == '\r' || ascii == '\n') {
     return open_how_to_play(context, state->selected, scan);
   }
 
+  animate_title_cursor(state);
+  animate_title_prompt(state);
   state->old_up = up;
   state->old_down = down;
   state->old_confirm = confirm;
