@@ -28,6 +28,11 @@
 
 #define HOW_PROMPT_BLINK_FRAMES 30
 
+#define SERVE_DURATION_FRAMES 60
+#define SERVE_BALL_BLINK_FRAMES 10
+#define SERVE_ARROW_SCALE 4
+#define SERVE_ARROW_GAP 18
+
 #define OPM_SE_CHANNEL      7
 #define OPM_KEY_ON_REG      0x08
 #define OPM_CHANNEL_REG     0x20
@@ -77,6 +82,13 @@ typedef struct {
   int vy;
 } Ball;
 
+typedef struct {
+  int frames_left;
+  int direction;
+  int arrow_x;
+  int ball_visible;
+} ServeState;
+
 typedef enum {
   GAME_MODE_TITLE,
   GAME_MODE_HOW_TO_PLAY,
@@ -118,6 +130,7 @@ typedef struct {
   Vec2i left;
   Vec2i right;
   Ball ball;
+  ServeState serve;
   PongController left_controller;
   PongController right_controller;
   int mode;
@@ -338,12 +351,16 @@ static void draw_fill(int x, int y, int w, int h, iocs_color_t color) {
 }
 
 static uint8_t glyph_row(char c, int row) {
-  static const uint8_t arrow[7] = {0x10,0x08,0x04,0x02,0x04,0x08,0x10};
+  static const uint8_t arrow_right[7] =
+    {0x10,0x08,0x04,0x02,0x04,0x08,0x10};
+  static const uint8_t arrow_left[7] =
+    {0x01,0x02,0x04,0x08,0x04,0x02,0x01};
   if (c >= '0' && c <= '9') return font5x7[c - '0'][row];
   if (c >= 'A' && c <= 'Z') return font5x7[10 + c - 'A'][row];
   if (c == '-') return row == 3 ? 0x1f : 0;
   if (c == '!') return (row < 5 || row == 6) ? 0x04 : 0;
-  if (c == '>') return arrow[row];
+  if (c == '>') return arrow_right[row];
+  if (c == '<') return arrow_left[row];
   return 0;
 }
 
@@ -667,11 +684,22 @@ static void clamp_in_field(int *value, int min, int max) {
   else if (*value > max) *value = max;
 }
 
+static int serve_arrow_base_x(int direction) {
+  int width = 5 * SERVE_ARROW_SCALE;
+
+  if (direction > 0) return FIELD_W / 2 + SERVE_ARROW_GAP;
+  return FIELD_W / 2 - SERVE_ARROW_GAP - width;
+}
+
 static void pong_reset_ball(PongGameState *state, int direction) {
   state->ball.x = (FIELD_W - BALL_SIZE) / 2;
   state->ball.y = (FIELD_H - BALL_SIZE) / 2;
-  state->ball.vx = direction * BALL_SPEED;
+  state->ball.vx = 0;
   state->ball.vy = (state->frame & 1) ? 3 : -3;
+  state->serve.frames_left = SERVE_DURATION_FRAMES;
+  state->serve.direction = direction;
+  state->serve.arrow_x = serve_arrow_base_x(direction);
+  state->serve.ball_visible = 1;
 }
 
 static void pong_state_initialize(PongGameState *state, int mode,
@@ -758,7 +786,28 @@ static void pong_reflect(PongGameState *state, const Vec2i *paddle, int directio
   if (state->ball.vy == 0) state->ball.vy = (state->frame & 1) ? 2 : -2;
 }
 
+static void pong_update_serve(PongGameState *state) {
+  ServeState *serve = &state->serve;
+  int elapsed = SERVE_DURATION_FRAMES - serve->frames_left;
+  int offset = title_cursor_offset(elapsed % TITLE_CURSOR_CYCLE_FRAMES);
+
+  serve->arrow_x = serve_arrow_base_x(serve->direction) +
+                   serve->direction * offset;
+  serve->ball_visible =
+    ((elapsed / SERVE_BALL_BLINK_FRAMES) & 1) == 0;
+
+  if (--serve->frames_left == 0) {
+    state->ball.vx = serve->direction * BALL_SPEED;
+    serve->ball_visible = 1;
+  }
+}
+
 static void pong_update_ball(PongGameState *state, SoundState *sound) {
+  if (state->serve.frames_left > 0) {
+    pong_update_serve(state);
+    return;
+  }
+
   state->ball.x += state->ball.vx;
   state->ball.y += state->ball.vy;
   if (state->ball.y <= 3) {
@@ -826,11 +875,30 @@ static void pong_restore_ball_background(const PongGameState *previous,
   }
 }
 
+static void pong_restore_serve_guide(const PongGameState *previous) {
+  if (previous->serve.frames_left <= 0) return;
+  draw_text(previous->serve.direction > 0 ? ">" : "<",
+            previous->serve.arrow_x,
+            (FIELD_H - 7 * SERVE_ARROW_SCALE) / 2,
+            SERVE_ARROW_SCALE, COLOR_BLACK);
+}
+
+static void pong_draw_serve_guide(const PongGameState *state) {
+  if (state->serve.frames_left <= 0) return;
+  draw_text(state->serve.direction > 0 ? ">" : "<",
+            state->serve.arrow_x,
+            (FIELD_H - 7 * SERVE_ARROW_SCALE) / 2,
+            SERVE_ARROW_SCALE, COLOR_ACCENT);
+}
+
 static void pong_draw_dynamic(const PongGameState *state, iocs_color_t paddle_color,
                               iocs_color_t ball_color) {
   draw_fill(state->left.x, state->left.y, PADDLE_W, PADDLE_H, paddle_color);
   draw_fill(state->right.x, state->right.y, PADDLE_W, PADDLE_H, paddle_color);
-  draw_fill(state->ball.x, state->ball.y, BALL_SIZE, BALL_SIZE, ball_color);
+  if (state->serve.frames_left <= 0 || state->serve.ball_visible) {
+    draw_fill(state->ball.x, state->ball.y,
+              BALL_SIZE, BALL_SIZE, ball_color);
+  }
 }
 
 static void pong_redraw_paddle(int x, int old_y, int new_y) {
@@ -845,6 +913,7 @@ static void pong_draw_match(const PongGameState *state) {
   draw_center_line();
   draw_score(state);
   pong_draw_dynamic(state, COLOR_ACCENT, COLOR_WHITE);
+  pong_draw_serve_guide(state);
 }
 
 static void pong_game_update(PongGameState *state, const Controls *input,
@@ -855,10 +924,14 @@ static void pong_game_update(PongGameState *state, const Controls *input,
   pong_update_ball(state, sound);
   ++state->frame;
   pong_restore_ball_background(&previous, state);
+  pong_restore_serve_guide(&previous);
   pong_redraw_paddle(state->left.x, previous.left.y, state->left.y);
   pong_redraw_paddle(state->right.x, previous.right.y, state->right.y);
-  draw_fill(state->ball.x, state->ball.y,
-            BALL_SIZE, BALL_SIZE, COLOR_WHITE);
+  if (state->serve.frames_left <= 0 || state->serve.ball_visible) {
+    draw_fill(state->ball.x, state->ball.y,
+              BALL_SIZE, BALL_SIZE, COLOR_WHITE);
+  }
+  pong_draw_serve_guide(state);
 }
 
 static void pong_initialize(GameContext *context) {
