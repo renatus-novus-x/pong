@@ -31,8 +31,7 @@
 #define COLOR_ACCENT 0x07e0
 
 #define KEY_ESC   0x01
-#define KEY_Q     0x10
-#define KEY_W     0x11
+#define KEY_W     0x12
 #define KEY_S     0x1f
 #define KEY_SPACE 0x35
 #define KEY_UP    0x3c
@@ -392,7 +391,7 @@ static int pad_has_activity(int port) {
 
 static int input_has_activity(void) {
   if (_iocs_b_keysns() != 0) return 1;
-  if (key_down(KEY_ESC) || key_down(KEY_Q) ||
+  if (key_down(KEY_ESC) ||
       key_down(KEY_W) || key_down(KEY_S) ||
       key_down(KEY_SPACE) || key_down(KEY_UP) || key_down(KEY_DOWN)) {
     return 1;
@@ -469,7 +468,7 @@ static GameModeId title_update(GameContext *context) {
                                          : MODE_TWO_PLAYER,
                             scan);
   }
-  if (scan == KEY_ESC || scan == KEY_Q || ascii == 'q' || ascii == 'Q') {
+  if (scan == KEY_ESC) {
     return GAME_MODE_EXIT;
   }
   if ((up && !state->old_up) || scan == KEY_UP || scan == KEY_W) {
@@ -517,7 +516,7 @@ static void draw_how_to_play(int mode) {
   }
 
   draw_centered("FIRST TO 3 POINTS WINS", 316, 3, COLOR_WHITE);
-  draw_centered("Q OR ESC BACK TO TITLE", 356, 3, COLOR_ACCENT);
+  draw_centered("ESC BACK TO TITLE", 356, 3, COLOR_ACCENT);
   draw_centered("SPACE RETURN OR PAD A", 414, 3, COLOR_WHITE);
 }
 
@@ -544,8 +543,7 @@ static GameModeId how_to_play_update(GameContext *context) {
   scan = event < 0 ? -1 : ((event >> 8) & 0x7f);
   ascii = event < 0 ? -1 : (event & 0xff);
 
-  if (scan == KEY_ESC || scan == KEY_Q ||
-      ascii == 'q' || ascii == 'Q') {
+  if (scan == KEY_ESC) {
     return GAME_MODE_TITLE;
   }
   if (!state->input_released) {
@@ -607,7 +605,7 @@ static Controls read_controls(const PongGameState *state) {
   Controls input;
   read_controller(state->left_controller, &input.left_up, &input.left_down);
   read_controller(state->right_controller, &input.right_up, &input.right_down);
-  input.quit = key_down(KEY_ESC) || key_down(KEY_Q);
+  input.quit = key_down(KEY_ESC);
   return input;
 }
 
