@@ -71,59 +71,46 @@
 #define WINNER_HOLD_CS 300
 
 typedef struct {
-  int x;
-  int y;
+  int x, y;
 } Vec2i;
 
 typedef struct {
-  int x;
-  int y;
-  int vx;
-  int vy;
+  int x, y, vx, vy;
 } Ball;
 
 typedef struct {
-  int frames_left;
-  int direction;
-  int arrow_x;
-  int ball_visible;
+  int frames_left, direction, arrow_x, ball_visible;
 } ServeState;
 
 typedef enum {
-  GAME_MODE_TITLE,
-  GAME_MODE_HOW_TO_PLAY,
-  GAME_MODE_PONG,
-  GAME_MODE_DEMO,
-  GAME_MODE_WINNER,
-  GAME_MODE_EXIT,
+  GAME_MODE_TITLE, GAME_MODE_HOW_TO_PLAY, GAME_MODE_PONG, GAME_MODE_DEMO, GAME_MODE_WINNER, GAME_MODE_EXIT,
   GAME_MODE_COUNT = GAME_MODE_EXIT
 } GameModeId;
 
 typedef enum {
-  PONG_CONTROLLER_PLAYER1,
-  PONG_CONTROLLER_PLAYER2,
-  PONG_CONTROLLER_CPU
+  PONG_CONTROLLER_PLAYER1, PONG_CONTROLLER_PLAYER2, PONG_CONTROLLER_CPU
 } PongController;
 
 typedef struct GameContext GameContext;
 
 typedef struct {
-  int selected;
-  int idle_frames;
-  int cursor_frame;
-  int cursor_x;
-  int prompt_frame;
-  int prompt_visible;
-  int old_up;
-  int old_down;
-  int old_confirm;
+  int frame, visible;
+} BlinkState;
+
+typedef struct {
+  int available, scan, ascii;
+} KeyEvent;
+
+typedef struct {
+  int selected, idle_frames;
+  int cursor_frame, cursor_x;
+  BlinkState prompt;
+  int old_up, old_down, old_confirm;
 } TitleState;
 
 typedef struct {
-  int input_released;
-  int blocked_scan;
-  int prompt_frame;
-  int prompt_visible;
+  int input_released, blocked_scan;
+  BlinkState prompt;
 } HowToPlayState;
 
 typedef struct {
@@ -131,12 +118,8 @@ typedef struct {
   Vec2i right;
   Ball ball;
   ServeState serve;
-  PongController left_controller;
-  PongController right_controller;
-  int mode;
-  int left_score;
-  int right_score;
-  int frame;
+  PongController left_controller, right_controller;
+  int mode, left_score, right_score, frame;
 } PongGameState;
 
 typedef struct {
@@ -174,11 +157,7 @@ struct GameContext {
 };
 
 typedef struct {
-  int left_up;
-  int left_down;
-  int right_up;
-  int right_down;
-  int quit;
+  int left_up, left_down, right_up, right_down, quit;
 } Controls;
 
 static const uint8_t opm_operator_registers[6] = {
@@ -186,10 +165,8 @@ static const uint8_t opm_operator_registers[6] = {
 };
 
 static const uint8_t paddle_se_patch[4][6] = {
-  {0x01, 0x18, 0x1f, 0x12, 0x08, 0x4f},
-  {0x12, 0x28, 0x1f, 0x12, 0x08, 0x4f},
-  {0x25, 0x38, 0x1f, 0x12, 0x08, 0x4f},
-  {0x37, 0x20, 0x1f, 0x12, 0x08, 0x4f}
+  {0x01, 0x18, 0x1f, 0x12, 0x08, 0x4f}, {0x12, 0x28, 0x1f, 0x12, 0x08, 0x4f},
+  {0x25, 0x38, 0x1f, 0x12, 0x08, 0x4f}, {0x37, 0x20, 0x1f, 0x12, 0x08, 0x4f}
 };
 
 static const uint8_t paddle_se_pitch[PADDLE_SE_FRAMES] = {
@@ -199,42 +176,24 @@ static const uint8_t paddle_se_pitch[PADDLE_SE_FRAMES] = {
 
 /* Compact 5 x 7 font: 0-9, then A-Z. */
 static const uint8_t font5x7[36][7] = {
-  {0x0e,0x11,0x13,0x15,0x19,0x11,0x0e},
-  {0x04,0x0c,0x04,0x04,0x04,0x04,0x0e},
-  {0x0e,0x11,0x01,0x02,0x04,0x08,0x1f},
-  {0x1e,0x01,0x01,0x0e,0x01,0x01,0x1e},
-  {0x02,0x06,0x0a,0x12,0x1f,0x02,0x02},
-  {0x1f,0x10,0x10,0x1e,0x01,0x01,0x1e},
-  {0x0e,0x10,0x10,0x1e,0x11,0x11,0x0e},
-  {0x1f,0x01,0x02,0x04,0x08,0x08,0x08},
-  {0x0e,0x11,0x11,0x0e,0x11,0x11,0x0e},
-  {0x0e,0x11,0x11,0x0f,0x01,0x01,0x0e},
-  {0x0e,0x11,0x11,0x1f,0x11,0x11,0x11},
-  {0x1e,0x11,0x11,0x1e,0x11,0x11,0x1e},
-  {0x0f,0x10,0x10,0x10,0x10,0x10,0x0f},
-  {0x1e,0x11,0x11,0x11,0x11,0x11,0x1e},
-  {0x1f,0x10,0x10,0x1e,0x10,0x10,0x1f},
-  {0x1f,0x10,0x10,0x1e,0x10,0x10,0x10},
-  {0x0f,0x10,0x10,0x17,0x11,0x11,0x0f},
-  {0x11,0x11,0x11,0x1f,0x11,0x11,0x11},
-  {0x0e,0x04,0x04,0x04,0x04,0x04,0x0e},
-  {0x01,0x01,0x01,0x01,0x11,0x11,0x0e},
-  {0x11,0x12,0x14,0x18,0x14,0x12,0x11},
-  {0x10,0x10,0x10,0x10,0x10,0x10,0x1f},
-  {0x11,0x1b,0x15,0x15,0x11,0x11,0x11},
-  {0x11,0x19,0x15,0x13,0x11,0x11,0x11},
-  {0x0e,0x11,0x11,0x11,0x11,0x11,0x0e},
-  {0x1e,0x11,0x11,0x1e,0x10,0x10,0x10},
-  {0x0e,0x11,0x11,0x11,0x15,0x12,0x0d},
-  {0x1e,0x11,0x11,0x1e,0x14,0x12,0x11},
-  {0x0f,0x10,0x10,0x0e,0x01,0x01,0x1e},
-  {0x1f,0x04,0x04,0x04,0x04,0x04,0x04},
-  {0x11,0x11,0x11,0x11,0x11,0x11,0x0e},
-  {0x11,0x11,0x11,0x11,0x11,0x0a,0x04},
-  {0x11,0x11,0x11,0x15,0x15,0x15,0x0a},
-  {0x11,0x11,0x0a,0x04,0x0a,0x11,0x11},
-  {0x11,0x11,0x0a,0x04,0x04,0x04,0x04},
-  {0x1f,0x01,0x02,0x04,0x08,0x10,0x1f}
+  {0x0e,0x11,0x13,0x15,0x19,0x11,0x0e}, {0x04,0x0c,0x04,0x04,0x04,0x04,0x0e},
+  {0x0e,0x11,0x01,0x02,0x04,0x08,0x1f}, {0x1e,0x01,0x01,0x0e,0x01,0x01,0x1e},
+  {0x02,0x06,0x0a,0x12,0x1f,0x02,0x02}, {0x1f,0x10,0x10,0x1e,0x01,0x01,0x1e},
+  {0x0e,0x10,0x10,0x1e,0x11,0x11,0x0e}, {0x1f,0x01,0x02,0x04,0x08,0x08,0x08},
+  {0x0e,0x11,0x11,0x0e,0x11,0x11,0x0e}, {0x0e,0x11,0x11,0x0f,0x01,0x01,0x0e},
+  {0x0e,0x11,0x11,0x1f,0x11,0x11,0x11}, {0x1e,0x11,0x11,0x1e,0x11,0x11,0x1e},
+  {0x0f,0x10,0x10,0x10,0x10,0x10,0x0f}, {0x1e,0x11,0x11,0x11,0x11,0x11,0x1e},
+  {0x1f,0x10,0x10,0x1e,0x10,0x10,0x1f}, {0x1f,0x10,0x10,0x1e,0x10,0x10,0x10},
+  {0x0f,0x10,0x10,0x17,0x11,0x11,0x0f}, {0x11,0x11,0x11,0x1f,0x11,0x11,0x11},
+  {0x0e,0x04,0x04,0x04,0x04,0x04,0x0e}, {0x01,0x01,0x01,0x01,0x11,0x11,0x0e},
+  {0x11,0x12,0x14,0x18,0x14,0x12,0x11}, {0x10,0x10,0x10,0x10,0x10,0x10,0x1f},
+  {0x11,0x1b,0x15,0x15,0x11,0x11,0x11}, {0x11,0x19,0x15,0x13,0x11,0x11,0x11},
+  {0x0e,0x11,0x11,0x11,0x11,0x11,0x0e}, {0x1e,0x11,0x11,0x1e,0x10,0x10,0x10},
+  {0x0e,0x11,0x11,0x11,0x15,0x12,0x0d}, {0x1e,0x11,0x11,0x1e,0x14,0x12,0x11},
+  {0x0f,0x10,0x10,0x0e,0x01,0x01,0x1e}, {0x1f,0x04,0x04,0x04,0x04,0x04,0x04},
+  {0x11,0x11,0x11,0x11,0x11,0x11,0x0e}, {0x11,0x11,0x11,0x11,0x11,0x0a,0x04},
+  {0x11,0x11,0x11,0x15,0x15,0x15,0x0a}, {0x11,0x11,0x0a,0x04,0x0a,0x11,0x11},
+  {0x11,0x11,0x0a,0x04,0x04,0x04,0x04}, {0x1f,0x01,0x02,0x04,0x08,0x10,0x1f}
 };
 
 static inline long ontime_diff_cs(struct iocs_time start, struct iocs_time end) {
@@ -285,9 +244,7 @@ static void sound_initialize(SoundState *state) {
   _iocs_opmset(OPM_PMS_AMS_REG + OPM_SE_CHANNEL, 0x00);
   for (op = 0; op < 4; ++op) {
     for (reg = 0; reg < 6; ++reg) {
-      _iocs_opmset(opm_operator_registers[reg] +
-                   OPM_SE_CHANNEL + op * 8,
-                   paddle_se_patch[op][reg]);
+      _iocs_opmset(opm_operator_registers[reg] + OPM_SE_CHANNEL + op * 8, paddle_se_patch[op][reg]);
     }
   }
   state->frames_left = 0;
@@ -305,8 +262,7 @@ static void sound_update(SoundState *state) {
 
   if (state->frames_left <= 0) return;
   frame = PADDLE_SE_FRAMES - state->frames_left;
-  _iocs_opmset(OPM_KEY_CODE_REG + OPM_SE_CHANNEL,
-               paddle_se_pitch[frame]);
+  _iocs_opmset(OPM_KEY_CODE_REG + OPM_SE_CHANNEL, paddle_se_pitch[frame]);
   if (--state->frames_left == 0) sound_key_off();
 }
 
@@ -351,10 +307,8 @@ static void draw_fill(int x, int y, int w, int h, iocs_color_t color) {
 }
 
 static uint8_t glyph_row(char c, int row) {
-  static const uint8_t arrow_right[7] =
-    {0x10,0x08,0x04,0x02,0x04,0x08,0x10};
-  static const uint8_t arrow_left[7] =
-    {0x01,0x02,0x04,0x08,0x04,0x02,0x01};
+  static const uint8_t arrow_right[7] = {0x10,0x08,0x04,0x02,0x04,0x08,0x10};
+  static const uint8_t arrow_left[7] = {0x01,0x02,0x04,0x08,0x04,0x02,0x01};
   if (c >= '0' && c <= '9') return font5x7[c - '0'][row];
   if (c >= 'A' && c <= 'Z') return font5x7[10 + c - 'A'][row];
   if (c == '-') return row == 3 ? 0x1f : 0;
@@ -403,6 +357,16 @@ static int poll_key(void) {
   return _iocs_b_keyinp();
 }
 
+static KeyEvent read_key_event(void) {
+  KeyEvent event;
+  int value = poll_key();
+
+  event.available = value >= 0;
+  event.scan = value < 0 ? -1 : ((value >> 8) & 0x7f);
+  event.ascii = value < 0 ? -1 : (value & 0xff);
+  return event;
+}
+
 static void flush_key_buffer(void) {
   while (_iocs_b_keysns() != 0) {
     (void)_iocs_b_keyinp();
@@ -427,8 +391,7 @@ static int pad_has_activity(int port) {
 
 static int input_has_activity(void) {
   if (_iocs_b_keysns() != 0) return 1;
-  if (key_down(KEY_ESC) ||
-      key_down(KEY_W) || key_down(KEY_S) ||
+  if (key_down(KEY_ESC) || key_down(KEY_W) || key_down(KEY_S) ||
       key_down(KEY_SPACE) || key_down(KEY_UP) || key_down(KEY_DOWN)) {
     return 1;
   }
@@ -442,11 +405,9 @@ static void draw_title(int selected) {
   draw_centered("PONG", 86, 12, COLOR_ACCENT);
   draw_centered("PONG", 78, 12, COLOR_WHITE);
   draw_frame(72, 224, 368, 146, 3, COLOR_WHITE);
-  draw_text(selected == MODE_ONE_PLAYER ? ">" : " ",
-            TITLE_CURSOR_X, 252, 5, COLOR_ACCENT);
+  draw_text(selected == MODE_ONE_PLAYER ? ">" : " ", TITLE_CURSOR_X, 252, 5, COLOR_ACCENT);
   draw_text("1 PLAYER", 142, 252, 5, COLOR_WHITE);
-  draw_text(selected == MODE_TWO_PLAYER ? ">" : " ",
-            TITLE_CURSOR_X, 310, 5, COLOR_ACCENT);
+  draw_text(selected == MODE_TWO_PLAYER ? ">" : " ", TITLE_CURSOR_X, 310, 5, COLOR_ACCENT);
   draw_text("2 PLAYERS", 142, 310, 5, COLOR_WHITE);
   draw_centered("UP DOWN AND START", 394, 3, COLOR_WHITE);
   draw_centered("KEYBOARD OR PAD", 424, 3, COLOR_ACCENT);
@@ -477,8 +438,7 @@ static void animate_title_cursor(TitleState *state) {
   int y = title_cursor_y(state->selected);
 
   if (next_x != state->cursor_x) {
-    draw_fill(state->cursor_x, y,
-              TITLE_CURSOR_W, TITLE_CURSOR_H, COLOR_BLACK);
+    draw_fill(state->cursor_x, y, TITLE_CURSOR_W, TITLE_CURSOR_H, COLOR_BLACK);
     draw_text(">", next_x, y, 5, COLOR_ACCENT);
     state->cursor_x = next_x;
   }
@@ -488,14 +448,17 @@ static void animate_title_cursor(TitleState *state) {
   }
 }
 
-static void animate_title_prompt(TitleState *state) {
-  if (++state->prompt_frame < TITLE_PROMPT_BLINK_FRAMES) return;
-  state->prompt_frame = 0;
-  state->prompt_visible = !state->prompt_visible;
-  draw_centered("UP DOWN AND START", 394, 3,
-                state->prompt_visible ? COLOR_WHITE : COLOR_BLACK);
+static int blink_update(BlinkState *state, int period) {
+  if (++state->frame < period) return 0;
+  state->frame = 0;
+  state->visible = !state->visible;
+  return 1;
 }
 
+static void animate_title_prompt(TitleState *state) {
+  if (!blink_update(&state->prompt, TITLE_PROMPT_BLINK_FRAMES)) return;
+  draw_centered("UP DOWN AND START", 394, 3, state->prompt.visible ? COLOR_WHITE : COLOR_BLACK);
+}
 static void move_title_cursor(TitleState *state, int next) {
   int old_y;
   int next_y;
@@ -503,9 +466,7 @@ static void move_title_cursor(TitleState *state, int next) {
   if (state->selected == next) return;
   old_y = title_cursor_y(state->selected);
   next_y = title_cursor_y(next);
-  draw_fill(TITLE_CURSOR_X, old_y,
-            TITLE_CURSOR_W + TITLE_CURSOR_TRAVEL,
-            TITLE_CURSOR_H, COLOR_BLACK);
+  draw_fill(TITLE_CURSOR_X, old_y, TITLE_CURSOR_W + TITLE_CURSOR_TRAVEL, TITLE_CURSOR_H, COLOR_BLACK);
   state->selected = next;
   state->cursor_frame = 0;
   state->cursor_x = TITLE_CURSOR_X;
@@ -519,8 +480,8 @@ static void title_initialize(GameContext *context) {
   state->idle_frames = 0;
   state->cursor_frame = 0;
   state->cursor_x = TITLE_CURSOR_X;
-  state->prompt_frame = 0;
-  state->prompt_visible = 1;
+  state->prompt.frame = 0;
+  state->prompt.visible = 1;
   draw_title(state->selected);
   state->old_up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
   state->old_down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
@@ -535,41 +496,27 @@ static GameModeId open_how_to_play(GameContext *context, int mode, int scan) {
 
 static GameModeId title_update(GameContext *context) {
   TitleState *state = &context->title;
-  int event;
-  int scan;
-  int ascii;
-  int up;
-  int down;
-  int confirm;
-  int activity;
+  KeyEvent key;
+  int up, down, confirm, activity;
 
-  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
   activity = input_has_activity();
   up = key_down(KEY_W) || key_down(KEY_UP) || either_pad_down(JOY_UP);
   down = key_down(KEY_S) || key_down(KEY_DOWN) || either_pad_down(JOY_DOWN);
   confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
-  event = poll_key();
-  scan = event < 0 ? -1 : ((event >> 8) & 0x7f);
-  ascii = event < 0 ? -1 : (event & 0xff);
+  key = read_key_event();
 
-  if (ascii == '1' || ascii == '2') {
-    return open_how_to_play(context,
-                            ascii == '1' ? MODE_ONE_PLAYER
-                                         : MODE_TWO_PLAYER,
-                            scan);
+  if (key.ascii == '1' || key.ascii == '2') {
+    return open_how_to_play(context, key.ascii == '1' ? MODE_ONE_PLAYER : MODE_TWO_PLAYER, key.scan);
   }
-  if (scan == KEY_ESC) {
-    return GAME_MODE_EXIT;
-  }
-  if ((up && !state->old_up) || scan == KEY_UP || scan == KEY_W) {
+  if (key.scan == KEY_ESC) return GAME_MODE_EXIT;
+  if ((up && !state->old_up) || key.scan == KEY_UP || key.scan == KEY_W) {
     move_title_cursor(state, MODE_ONE_PLAYER);
   }
-  if ((down && !state->old_down) || scan == KEY_DOWN || scan == KEY_S) {
+  if ((down && !state->old_down) || key.scan == KEY_DOWN || key.scan == KEY_S) {
     move_title_cursor(state, MODE_TWO_PLAYER);
   }
-  if ((confirm && !state->old_confirm) ||
-      ascii == ' ' || ascii == '\r' || ascii == '\n') {
-    return open_how_to_play(context, state->selected, scan);
+  if ((confirm && !state->old_confirm) || key.ascii == ' ' || key.ascii == '\r' || key.ascii == '\n') {
+    return open_how_to_play(context, state->selected, key.scan);
   }
 
   animate_title_cursor(state);
@@ -577,14 +524,13 @@ static GameModeId title_update(GameContext *context) {
   state->old_up = up;
   state->old_down = down;
   state->old_confirm = confirm;
-  if (activity || event >= 0) {
+  if (activity || key.available) {
     state->idle_frames = 0;
   } else if (++state->idle_frames >= TITLE_DEMO_WAIT_FRAMES) {
     return GAME_MODE_DEMO;
   }
   return GAME_MODE_TITLE;
 }
-
 static void title_finalize(GameContext *context) {
   (void)context;
 }
@@ -595,8 +541,7 @@ static int how_controls_y(int mode) {
 }
 
 static void draw_how_prompts(int mode, iocs_color_t color) {
-  draw_centered("W S OR PAD 1 UP DOWN",
-                how_controls_y(mode), 3, color);
+  draw_centered("W S OR PAD 1 UP DOWN", how_controls_y(mode), 3, color);
   if (mode == MODE_TWO_PLAYER) {
     draw_centered("CURSOR UP DOWN OR PAD 2", 258, 3, color);
   }
@@ -605,19 +550,14 @@ static void draw_how_prompts(int mode, iocs_color_t color) {
 
 
 static void animate_how_prompts(HowToPlayState *state, int mode) {
-  if (++state->prompt_frame < HOW_PROMPT_BLINK_FRAMES) return;
-  state->prompt_frame = 0;
-  state->prompt_visible = !state->prompt_visible;
-  draw_how_prompts(mode,
-                   state->prompt_visible ? COLOR_ACCENT : COLOR_BLACK);
+  if (!blink_update(&state->prompt, HOW_PROMPT_BLINK_FRAMES)) return;
+  draw_how_prompts(mode, state->prompt.visible ? COLOR_ACCENT : COLOR_BLACK);
 }
-
 static void draw_how_to_play(int mode) {
   _iocs_g_clr_on();
   draw_frame(16, 16, FIELD_W - 32, FIELD_H - 32, 4, COLOR_ACCENT);
   draw_centered("HOW TO PLAY", 42, 5, COLOR_WHITE);
-  draw_centered(mode == MODE_ONE_PLAYER ? "1 PLAYER" : "2 PLAYERS",
-                96, 4, COLOR_ACCENT);
+  draw_centered(mode == MODE_ONE_PLAYER ? "1 PLAYER" : "2 PLAYERS", 96, 4, COLOR_ACCENT);
 
   if (mode == MODE_ONE_PLAYER) {
     draw_centered("PLAYER 1 LEFT PADDLE", 154, 3, COLOR_WHITE);
@@ -639,41 +579,32 @@ static void how_to_play_initialize(GameContext *context) {
   HowToPlayState *state = &context->how_to_play;
 
   state->input_released = 0;
-  state->prompt_frame = 0;
-  state->prompt_visible = 1;
+  state->prompt.frame = 0;
+  state->prompt.visible = 1;
   flush_key_buffer();
   draw_how_to_play(context->pong.mode);
 }
 
 static GameModeId how_to_play_update(GameContext *context) {
   HowToPlayState *state = &context->how_to_play;
-  int event;
-  int scan;
-  int ascii;
-  int confirm;
-  int blocked;
+  KeyEvent key;
+  int confirm, blocked;
 
-  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
   animate_how_prompts(state, context->pong.mode);
   confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
   blocked = state->blocked_scan >= 0 && key_down(state->blocked_scan);
-  event = poll_key();
-  scan = event < 0 ? -1 : ((event >> 8) & 0x7f);
-  ascii = event < 0 ? -1 : (event & 0xff);
+  key = read_key_event();
 
-  if (scan == KEY_ESC) {
-    return GAME_MODE_TITLE;
-  }
+  if (key.scan == KEY_ESC) return GAME_MODE_TITLE;
   if (!state->input_released) {
-    if (!blocked && !confirm && event < 0) state->input_released = 1;
+    if (!blocked && !confirm && !key.available) state->input_released = 1;
     return GAME_MODE_HOW_TO_PLAY;
   }
-  if (confirm || ascii == ' ' || ascii == '\r' || ascii == '\n') {
+  if (confirm || key.ascii == ' ' || key.ascii == '\r' || key.ascii == '\n') {
     return GAME_MODE_PONG;
   }
   return GAME_MODE_HOW_TO_PLAY;
 }
-
 static void how_to_play_finalize(GameContext *context) {
   (void)context;
   flush_key_buffer();
@@ -702,9 +633,7 @@ static void pong_reset_ball(PongGameState *state, int direction) {
   state->serve.ball_visible = 1;
 }
 
-static void pong_state_initialize(PongGameState *state, int mode,
-                                  PongController left,
-                                  PongController right) {
+static void pong_state_initialize(PongGameState *state, int mode, PongController left, PongController right) {
   state->mode = mode;
   state->left_controller = left;
   state->right_controller = right;
@@ -738,14 +667,12 @@ static Controls read_controls(const PongGameState *state) {
   return input;
 }
 
-static void pong_move_cpu_paddle(PongGameState *state, Vec2i *paddle,
-                                 int is_left) {
+static void pong_move_cpu_paddle(PongGameState *state, Vec2i *paddle, int is_left) {
   int paddle_center;
   int target = FIELD_H / 2;
 
   if ((state->frame & 1) != 0) return;
-  if ((is_left && state->ball.vx < 0) ||
-      (!is_left && state->ball.vx > 0)) {
+  if ((is_left && state->ball.vx < 0) || (!is_left && state->ball.vx > 0)) {
     target = state->ball.y + BALL_SIZE / 2;
     target += ((state->frame >> 5) & 1) ? 6 : -6;
   }
@@ -755,8 +682,7 @@ static void pong_move_cpu_paddle(PongGameState *state, Vec2i *paddle,
   if (paddle_center > target + 5) paddle->y -= CPU_SPEED;
 }
 
-static void pong_move_controllers(PongGameState *state,
-                                  const Controls *input) {
+static void pong_move_controllers(PongGameState *state, const Controls *input) {
   if (input->left_up) state->left.y -= PADDLE_SPEED;
   if (input->left_down) state->left.y += PADDLE_SPEED;
   if (input->right_up) state->right.y -= PADDLE_SPEED;
@@ -791,10 +717,8 @@ static void pong_update_serve(PongGameState *state) {
   int elapsed = SERVE_DURATION_FRAMES - serve->frames_left;
   int offset = title_cursor_offset(elapsed % TITLE_CURSOR_CYCLE_FRAMES);
 
-  serve->arrow_x = serve_arrow_base_x(serve->direction) +
-                   serve->direction * offset;
-  serve->ball_visible =
-    ((elapsed / SERVE_BALL_BLINK_FRAMES) & 1) == 0;
+  serve->arrow_x = serve_arrow_base_x(serve->direction) + serve->direction * offset;
+  serve->ball_visible = ((elapsed / SERVE_BALL_BLINK_FRAMES) & 1) == 0;
 
   if (--serve->frames_left == 0) {
     state->ball.vx = serve->direction * BALL_SPEED;
@@ -855,49 +779,32 @@ static void draw_score(const PongGameState *state) {
 }
 
 static int ball_overlaps_rect(const Ball *ball, int x, int y, int w, int h) {
-  return ball->x < x + w && ball->x + BALL_SIZE > x &&
-         ball->y < y + h && ball->y + BALL_SIZE > y;
+  return ball->x < x + w && ball->x + BALL_SIZE > x && ball->y < y + h && ball->y + BALL_SIZE > y;
 }
 
-static void pong_restore_ball_background(const PongGameState *previous,
-                                         const PongGameState *state) {
-  draw_fill(previous->ball.x, previous->ball.y,
-            BALL_SIZE, BALL_SIZE, COLOR_BLACK);
+static void pong_restore_ball_background(const PongGameState *previous, const PongGameState *state) {
+  draw_fill(previous->ball.x, previous->ball.y, BALL_SIZE, BALL_SIZE, COLOR_BLACK);
 
-  if (ball_overlaps_rect(&previous->ball,
-                         FIELD_W / 2 - 1, 0, 3, FIELD_H)) {
+  if (ball_overlaps_rect(&previous->ball, FIELD_W / 2 - 1, 0, 3, FIELD_H)) {
     draw_center_line();
   }
-  if (previous->left_score != state->left_score ||
-      previous->right_score != state->right_score ||
+  if (previous->left_score != state->left_score || previous->right_score != state->right_score ||
       ball_overlaps_rect(&previous->ball, 194, 8, 124, 44)) {
     draw_score(state);
   }
 }
 
-static void pong_restore_serve_guide(const PongGameState *previous) {
-  if (previous->serve.frames_left <= 0) return;
-  draw_text(previous->serve.direction > 0 ? ">" : "<",
-            previous->serve.arrow_x,
-            (FIELD_H - 7 * SERVE_ARROW_SCALE) / 2,
-            SERVE_ARROW_SCALE, COLOR_BLACK);
-}
-
-static void pong_draw_serve_guide(const PongGameState *state) {
+static void pong_draw_serve_guide(const PongGameState *state, iocs_color_t color) {
   if (state->serve.frames_left <= 0) return;
-  draw_text(state->serve.direction > 0 ? ">" : "<",
-            state->serve.arrow_x,
-            (FIELD_H - 7 * SERVE_ARROW_SCALE) / 2,
-            SERVE_ARROW_SCALE, COLOR_ACCENT);
+  draw_text(state->serve.direction > 0 ? ">" : "<", state->serve.arrow_x,
+            (FIELD_H - 7 * SERVE_ARROW_SCALE) / 2, SERVE_ARROW_SCALE, color);
 }
-
 static void pong_draw_dynamic(const PongGameState *state, iocs_color_t paddle_color,
                               iocs_color_t ball_color) {
   draw_fill(state->left.x, state->left.y, PADDLE_W, PADDLE_H, paddle_color);
   draw_fill(state->right.x, state->right.y, PADDLE_W, PADDLE_H, paddle_color);
   if (state->serve.frames_left <= 0 || state->serve.ball_visible) {
-    draw_fill(state->ball.x, state->ball.y,
-              BALL_SIZE, BALL_SIZE, ball_color);
+    draw_fill(state->ball.x, state->ball.y, BALL_SIZE, BALL_SIZE, ball_color);
   }
 }
 
@@ -913,35 +820,30 @@ static void pong_draw_match(const PongGameState *state) {
   draw_center_line();
   draw_score(state);
   pong_draw_dynamic(state, COLOR_ACCENT, COLOR_WHITE);
-  pong_draw_serve_guide(state);
+  pong_draw_serve_guide(state, COLOR_ACCENT);
 }
 
-static void pong_game_update(PongGameState *state, const Controls *input,
-                             SoundState *sound) {
+static void pong_game_update(PongGameState *state, const Controls *input, SoundState *sound) {
   PongGameState previous = *state;
 
   pong_move_controllers(state, input);
   pong_update_ball(state, sound);
   ++state->frame;
   pong_restore_ball_background(&previous, state);
-  pong_restore_serve_guide(&previous);
+  pong_draw_serve_guide(&previous, COLOR_BLACK);
   pong_redraw_paddle(state->left.x, previous.left.y, state->left.y);
   pong_redraw_paddle(state->right.x, previous.right.y, state->right.y);
   if (state->serve.frames_left <= 0 || state->serve.ball_visible) {
-    draw_fill(state->ball.x, state->ball.y,
-              BALL_SIZE, BALL_SIZE, COLOR_WHITE);
+    draw_fill(state->ball.x, state->ball.y, BALL_SIZE, BALL_SIZE, COLOR_WHITE);
   }
-  pong_draw_serve_guide(state);
+  pong_draw_serve_guide(state, COLOR_ACCENT);
 }
 
 static void pong_initialize(GameContext *context) {
   PongGameState *state = &context->pong;
-  PongController right = state->mode == MODE_TWO_PLAYER
-                       ? PONG_CONTROLLER_PLAYER2
-                       : PONG_CONTROLLER_CPU;
+  PongController right = state->mode == MODE_TWO_PLAYER ? PONG_CONTROLLER_PLAYER2 : PONG_CONTROLLER_CPU;
 
-  pong_state_initialize(state, state->mode,
-                        PONG_CONTROLLER_PLAYER1, right);
+  pong_state_initialize(state, state->mode, PONG_CONTROLLER_PLAYER1, right);
   pong_draw_match(state);
 }
 
@@ -949,7 +851,6 @@ static GameModeId pong_update(GameContext *context) {
   PongGameState *state = &context->pong;
   Controls input;
 
-  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
   input = read_controls(state);
   flush_key_buffer();
   if (input.quit) return GAME_MODE_TITLE;
@@ -974,8 +875,7 @@ static void demo_initialize(GameContext *context) {
   PongGameState *pong = &context->pong;
 
   context->demo.elapsed_frames = 0;
-  pong_state_initialize(pong, MODE_TWO_PLAYER,
-                        PONG_CONTROLLER_CPU, PONG_CONTROLLER_CPU);
+  pong_state_initialize(pong, MODE_TWO_PLAYER, PONG_CONTROLLER_CPU, PONG_CONTROLLER_CPU);
   pong_draw_match(pong);
   flush_key_buffer();
 }
@@ -984,12 +884,10 @@ static GameModeId demo_update(GameContext *context) {
   PongGameState *pong = &context->pong;
   Controls input = {0, 0, 0, 0, 0};
 
-  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
   if (input_has_activity()) return GAME_MODE_TITLE;
 
   pong_game_update(pong, &input, &context->sound);
-  if (pong->left_score >= WIN_SCORE ||
-      pong->right_score >= WIN_SCORE) {
+  if (pong->left_score >= WIN_SCORE || pong->right_score >= WIN_SCORE) {
     pong->left_score = 0;
     pong->right_score = 0;
     draw_score(pong);
@@ -1037,7 +935,6 @@ static void winner_initialize(GameContext *context) {
 static GameModeId winner_update(GameContext *context) {
   WinnerState *state = &context->winner;
 
-  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
   flush_key_buffer();
   if (ontime_diff_cs(state->start, _iocs_ontime()) >= WINNER_HOLD_CS) {
     return GAME_MODE_TITLE;
@@ -1066,8 +963,7 @@ static int application_initialize(GameContext *context) {
 static const GameMode game_modes[GAME_MODE_COUNT] = {
   {title_initialize, title_update, title_finalize},
   {how_to_play_initialize, how_to_play_update, how_to_play_finalize},
-  {pong_initialize, pong_update, pong_finalize},
-  {demo_initialize, demo_update, demo_finalize},
+  {pong_initialize, pong_update, pong_finalize}, {demo_initialize, demo_update, demo_finalize},
   {winner_initialize, winner_update, winner_finalize}
 };
 
@@ -1079,7 +975,7 @@ static void application_loop(GameContext *context) {
 
   while (application->mode != GAME_MODE_EXIT) {
     GameModeId current = application->mode;
-    GameModeId next = game_modes[current].update(context);
+    GameModeId next = wait_vdisp() != 0 ? GAME_MODE_EXIT : game_modes[current].update(context);
 
     sound_update(&context->sound);
     if (next == current) continue;
