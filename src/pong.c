@@ -173,7 +173,6 @@ static const uint8_t paddle_se_pitch[PADDLE_SE_FRAMES] = {
   0x5e, 0x5c, 0x5a, 0x59, 0x58, 0x56, 0x55
 };
 
-
 /* Compact 5 x 7 font: 0-9, then A-Z. */
 static const uint8_t font5x7[36][7] = {
   {0x0e,0x11,0x13,0x15,0x19,0x11,0x0e}, {0x04,0x0c,0x04,0x04,0x04,0x04,0x0e},
@@ -307,8 +306,8 @@ static void draw_fill(int x, int y, int w, int h, iocs_color_t color) {
 }
 
 static uint8_t glyph_row(char c, int row) {
-  static const uint8_t arrow_right[7] = {0x10,0x08,0x04,0x02,0x04,0x08,0x10};
-  static const uint8_t arrow_left[7] = {0x01,0x02,0x04,0x08,0x04,0x02,0x01};
+  static const uint8_t arrow_right[7] = {0x18,0x0c,0x06,0x03,0x06,0x0c,0x18};
+  static const uint8_t arrow_left[7] = {0x03,0x06,0x0c,0x18,0x0c,0x06,0x03};
   if (c >= '0' && c <= '9') return font5x7[c - '0'][row];
   if (c >= 'A' && c <= 'Z') return font5x7[10 + c - 'A'][row];
   if (c == '-') return row == 3 ? 0x1f : 0;
@@ -329,11 +328,12 @@ static void draw_text(const char *text, int x, int y, int scale, iocs_color_t co
     int row;
     for (row = 0; row < 7; ++row) {
       uint8_t bits = glyph_row(*text, row);
-      int col;
-      for (col = 0; col < 5; ++col) {
-        if (bits & (0x10 >> col)) {
-          draw_fill(x + col * scale, y + row * scale, scale, scale, color);
-        }
+      int col = 0, start;
+      while (col < 5) {
+        while (col < 5 && !(bits & (0x10 >> col))) ++col;
+        start = col;
+        while (col < 5 && (bits & (0x10 >> col))) ++col;
+        if (start < col) draw_fill(x + start * scale, y + row * scale, (col - start) * scale, scale, color);
       }
     }
     x += 6 * scale;
@@ -535,7 +535,6 @@ static void title_finalize(GameContext *context) {
   (void)context;
 }
 
-
 static int how_controls_y(int mode) {
   return mode == MODE_ONE_PLAYER ? 190 : 176;
 }
@@ -547,7 +546,6 @@ static void draw_how_prompts(int mode, iocs_color_t color) {
   }
   draw_centered("ESC BACK TO TITLE", 356, 3, color);
 }
-
 
 static void animate_how_prompts(HowToPlayState *state, int mode) {
   if (!blink_update(&state->prompt, HOW_PROMPT_BLINK_FRAMES)) return;
@@ -783,10 +781,11 @@ static int ball_overlaps_rect(const Ball *ball, int x, int y, int w, int h) {
 }
 
 static void pong_restore_ball_background(const PongGameState *previous, const PongGameState *state) {
-  draw_fill(previous->ball.x, previous->ball.y, BALL_SIZE, BALL_SIZE, COLOR_BLACK);
+  int y;
 
-  if (ball_overlaps_rect(&previous->ball, FIELD_W / 2 - 1, 0, 3, FIELD_H)) {
-    draw_center_line();
+  draw_fill(previous->ball.x, previous->ball.y, BALL_SIZE, BALL_SIZE, COLOR_BLACK);
+  for (y = 8; y < FIELD_H - 8; y += 24) {
+    if (ball_overlaps_rect(&previous->ball, FIELD_W / 2 - 1, y, 3, 12)) draw_fill(FIELD_W / 2 - 1, y, 3, 12, COLOR_WHITE);
   }
   if (previous->left_score != state->left_score || previous->right_score != state->right_score ||
       ball_overlaps_rect(&previous->ball, 194, 8, 124, 44)) {
@@ -825,18 +824,23 @@ static void pong_draw_match(const PongGameState *state) {
 
 static void pong_game_update(PongGameState *state, const Controls *input, SoundState *sound) {
   PongGameState previous = *state;
+  int old_ball_visible = previous.serve.frames_left <= 0 || previous.serve.ball_visible;
+  int old_guide_visible = previous.serve.frames_left > 0;
+  int ball_visible, ball_changed, guide_visible, guide_changed;
 
   pong_move_controllers(state, input);
   pong_update_ball(state, sound);
   ++state->frame;
-  pong_restore_ball_background(&previous, state);
-  pong_draw_serve_guide(&previous, COLOR_BLACK);
+  ball_visible = state->serve.frames_left <= 0 || state->serve.ball_visible;
+  guide_visible = state->serve.frames_left > 0;
+  ball_changed = previous.ball.x != state->ball.x || previous.ball.y != state->ball.y || old_ball_visible != ball_visible;
+  guide_changed = old_guide_visible != guide_visible || (guide_visible && previous.serve.arrow_x != state->serve.arrow_x);
+  if (ball_changed && old_ball_visible) pong_restore_ball_background(&previous, state);
+  if (guide_changed && old_guide_visible) pong_draw_serve_guide(&previous, COLOR_BLACK);
   pong_redraw_paddle(state->left.x, previous.left.y, state->left.y);
   pong_redraw_paddle(state->right.x, previous.right.y, state->right.y);
-  if (state->serve.frames_left <= 0 || state->serve.ball_visible) {
-    draw_fill(state->ball.x, state->ball.y, BALL_SIZE, BALL_SIZE, COLOR_WHITE);
-  }
-  pong_draw_serve_guide(state, COLOR_ACCENT);
+  if (ball_changed && ball_visible) draw_fill(state->ball.x, state->ball.y, BALL_SIZE, BALL_SIZE, COLOR_WHITE);
+  if (guide_changed && guide_visible) pong_draw_serve_guide(state, COLOR_ACCENT);
 }
 
 static void pong_initialize(GameContext *context) {
