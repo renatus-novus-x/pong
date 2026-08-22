@@ -60,6 +60,7 @@ typedef struct {
 
 typedef enum {
   GAME_MODE_TITLE,
+  GAME_MODE_HOW_TO_PLAY,
   GAME_MODE_PONG,
   GAME_MODE_DEMO,
   GAME_MODE_WINNER,
@@ -82,6 +83,11 @@ typedef struct {
   int old_down;
   int old_confirm;
 } TitleState;
+
+typedef struct {
+  int input_released;
+  int blocked_scan;
+} HowToPlayState;
 
 typedef struct {
   Vec2i left;
@@ -118,6 +124,7 @@ typedef struct {
 struct GameContext {
   ApplicationState application;
   TitleState title;
+  HowToPlayState how_to_play;
   PongGameState pong;
   DemoState demo;
   WinnerState winner;
@@ -359,6 +366,12 @@ static void title_initialize(GameContext *context) {
   state->old_confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
 }
 
+static GameModeId open_how_to_play(GameContext *context, int mode, int scan) {
+  context->pong.mode = mode;
+  context->how_to_play.blocked_scan = scan;
+  return GAME_MODE_HOW_TO_PLAY;
+}
+
 static GameModeId title_update(GameContext *context) {
   TitleState *state = &context->title;
   int event;
@@ -379,8 +392,10 @@ static GameModeId title_update(GameContext *context) {
   ascii = event < 0 ? -1 : (event & 0xff);
 
   if (ascii == '1' || ascii == '2') {
-    context->pong.mode = ascii == '1' ? MODE_ONE_PLAYER : MODE_TWO_PLAYER;
-    return GAME_MODE_PONG;
+    return open_how_to_play(context,
+                            ascii == '1' ? MODE_ONE_PLAYER
+                                         : MODE_TWO_PLAYER,
+                            scan);
   }
   if (scan == KEY_ESC || scan == KEY_Q || ascii == 'q' || ascii == 'Q') {
     return GAME_MODE_EXIT;
@@ -393,8 +408,7 @@ static GameModeId title_update(GameContext *context) {
   }
   if ((confirm && !state->old_confirm) ||
       ascii == ' ' || ascii == '\r' || ascii == '\n') {
-    context->pong.mode = state->selected;
-    return GAME_MODE_PONG;
+    return open_how_to_play(context, state->selected, scan);
   }
 
   state->old_up = up;
@@ -410,6 +424,71 @@ static GameModeId title_update(GameContext *context) {
 
 static void title_finalize(GameContext *context) {
   (void)context;
+}
+
+static void draw_how_to_play(int mode) {
+  _iocs_g_clr_on();
+  draw_frame(16, 16, FIELD_W - 32, FIELD_H - 32, 4, COLOR_ACCENT);
+  draw_centered("HOW TO PLAY", 42, 5, COLOR_WHITE);
+  draw_centered(mode == MODE_ONE_PLAYER ? "1 PLAYER" : "2 PLAYERS",
+                96, 4, COLOR_ACCENT);
+
+  if (mode == MODE_ONE_PLAYER) {
+    draw_centered("PLAYER 1 LEFT PADDLE", 154, 3, COLOR_WHITE);
+    draw_centered("W S OR PAD 1 UP DOWN", 190, 3, COLOR_ACCENT);
+    draw_centered("PLAYER 2 IS CPU", 244, 3, COLOR_WHITE);
+  } else {
+    draw_centered("PLAYER 1 LEFT PADDLE", 142, 3, COLOR_WHITE);
+    draw_centered("W S OR PAD 1 UP DOWN", 176, 3, COLOR_ACCENT);
+    draw_centered("PLAYER 2 RIGHT PADDLE", 224, 3, COLOR_WHITE);
+    draw_centered("CURSOR UP DOWN OR PAD 2", 258, 3, COLOR_ACCENT);
+  }
+
+  draw_centered("FIRST TO 3 POINTS WINS", 316, 3, COLOR_WHITE);
+  draw_centered("Q OR ESC BACK TO TITLE", 356, 3, COLOR_ACCENT);
+  draw_centered("SPACE RETURN OR PAD A", 414, 3, COLOR_WHITE);
+}
+
+static void how_to_play_initialize(GameContext *context) {
+  HowToPlayState *state = &context->how_to_play;
+
+  state->input_released = 0;
+  flush_key_buffer();
+  draw_how_to_play(context->pong.mode);
+}
+
+static GameModeId how_to_play_update(GameContext *context) {
+  HowToPlayState *state = &context->how_to_play;
+  int event;
+  int scan;
+  int ascii;
+  int confirm;
+  int blocked;
+
+  if (wait_vdisp() != 0) return GAME_MODE_EXIT;
+  confirm = key_down(KEY_SPACE) || either_pad_down(JOY_BUTTON);
+  blocked = state->blocked_scan >= 0 && key_down(state->blocked_scan);
+  event = poll_key();
+  scan = event < 0 ? -1 : ((event >> 8) & 0x7f);
+  ascii = event < 0 ? -1 : (event & 0xff);
+
+  if (scan == KEY_ESC || scan == KEY_Q ||
+      ascii == 'q' || ascii == 'Q') {
+    return GAME_MODE_TITLE;
+  }
+  if (!state->input_released) {
+    if (!blocked && !confirm && event < 0) state->input_released = 1;
+    return GAME_MODE_HOW_TO_PLAY;
+  }
+  if (confirm || ascii == ' ' || ascii == '\r' || ascii == '\n') {
+    return GAME_MODE_PONG;
+  }
+  return GAME_MODE_HOW_TO_PLAY;
+}
+
+static void how_to_play_finalize(GameContext *context) {
+  (void)context;
+  flush_key_buffer();
 }
 
 static void clamp_in_field(int *value, int min, int max) {
@@ -737,6 +816,7 @@ static int application_initialize(GameContext *context) {
 
 static const GameMode game_modes[GAME_MODE_COUNT] = {
   {title_initialize, title_update, title_finalize},
+  {how_to_play_initialize, how_to_play_update, how_to_play_finalize},
   {pong_initialize, pong_update, pong_finalize},
   {demo_initialize, demo_update, demo_finalize},
   {winner_initialize, winner_update, winner_finalize}

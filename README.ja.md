@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <strong><a href="https://uraraworks.github.io/WebX68k/?cpu=10&ram=12&fd1=https://cdn.jsdelivr.net/gh/renatus-novus-x/pong@main/dist/pong.xdf&run=1">▶ WebX68kでPONGを起動</a></strong>
+  <strong><a href="https://uraraworks.github.io/WebX68k/?cpu=10&ram=12&fd1=https://raw.githubusercontent.com/renatus-novus-x/pong/main/dist/pong.xdf&run=1">▶ WebX68kでPONGを起動</a></strong>
 </p>
 
 Human68kのランタイムAPIを使用しない、Sharp X68000向けベアメタルPONGです。C言語で実装しています。
@@ -18,12 +18,14 @@ Human68kのランタイムAPIを使用しない、Sharp X68000向けベアメタ
 - キーボードと2台のゲームパッドに対応
 - 3本先取と勝者表示
 - ファミコン風タイトル画面
+- 対戦前に操作方法を説明するHOW TO PLAY画面
 
 ## 操作
 
 - プレイヤー1: `W` / `S`、またはパッド1の上 / 下
 - プレイヤー2: カーソル上 / 下、またはパッド2の上 / 下
 - タイトル: 上 / 下で選択、Return、Space、またはパッドAで決定
+- HOW TO PLAY: Return、Space、またはパッドAでゲーム開始
 - `Q` / `ESC`: 対戦中はタイトルへ戻り、タイトル画面では終了
 
 ## ビルド
