@@ -26,7 +26,7 @@ Bare-metal PONG for the Sharp X68000, written in C without Human68k runtime APIs
 - Player 2: cursor up / down, or gamepad 2 up / down
 - Title: up / down and Return, Space, or gamepad A
 - How to Play: Return, Space, or gamepad A to start
-- `Q` / `ESC`: return to the title; from the title, exit
+- `ESC`: return to the title from HOW TO PLAY or a match
 
 ## Build
 

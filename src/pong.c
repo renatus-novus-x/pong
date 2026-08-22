@@ -508,7 +508,6 @@ static GameModeId title_update(GameContext *context) {
   if (key.ascii == '1' || key.ascii == '2') {
     return open_how_to_play(context, key.ascii == '1' ? MODE_ONE_PLAYER : MODE_TWO_PLAYER, key.scan);
   }
-  if (key.scan == KEY_ESC) return GAME_MODE_EXIT;
   if ((up && !state->old_up) || key.scan == KEY_UP || key.scan == KEY_W) {
     move_title_cursor(state, MODE_ONE_PLAYER);
   }
